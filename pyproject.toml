@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "core4ai"
+version = "0.1.3"
+authors = [
+    {name = "Rahul Pandey", email = "rpandey1901@gmail.com"},
+]
+description = "Core4AI - Contextual Optimization and Refinement Engine for AI"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["llm", "prompt", "mlflow", "ai", "template"]
+
+[project.urls]
+"Homepage" = "https://github.com/iRahulPandey/core4ai"
+"Bug Tracker" = "https://github.com/iRahulPandey/core4ai/issues"
