@@ -42,10 +42,10 @@ def validate_mlflow_uri(uri):
 
 def setup_wizard():
     """Interactive setup wizard for core4ai."""
-    click.echo("┌──────────────────────────────────────────────────┐")
-    click.echo("│             Core4AI Setup Wizard                 │")
-    click.echo("│ Contextual Optimization and Refinement Engine    │")
-    click.echo("└──────────────────────────────────────────────────┘")
+    click.echo("┌──────────────────────────────────────────────────────┐")
+    click.echo("│             Core4AI Setup Wizard                     │")
+    click.echo("│ Contextual Optimization and Refinement Engine for AI │")
+    click.echo("└──────────────────────────────────────────────────────┘")
     
     click.echo("\nThis wizard will help you configure Core4AI for your environment.")
     
@@ -197,7 +197,6 @@ def setup_wizard():
     click.echo("│               Getting Started                    │")
     click.echo("└──────────────────────────────────────────────────┘")
     click.echo("\nYou can now use Core4AI with the following commands:")
-    click.echo("  core4ai serve     - Start the server")
     click.echo("  core4ai register  - Register a new prompt")
     click.echo("  core4ai list      - List available prompts")
     click.echo("  core4ai chat      - Chat with AI using enhanced prompts")

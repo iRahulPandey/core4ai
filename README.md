@@ -2,24 +2,38 @@
 
 Core4AI is an intelligent system that transforms basic user queries into optimized prompts for AI systems using MLflow Prompt Registry. It dynamically matches user requests to the most appropriate prompt template and applies it with extracted parameters.
 
-## 🔍 Overview
+## ✨ Key Features
 
-Core4AI combines MLflow Prompt Registry with dynamic prompt matching to create a powerful, flexible system for prompt engineering:
-
-- **Centralized Prompt Management**: Store, version, and manage prompts in MLflow
-- **Dynamic Matching**: Intelligently match user queries to the best prompt template
-- **Multiple AI Providers**: Support for OpenAI and Ollama
-- **Version Control**: Track prompt history with production and archive aliases
-- **Extensible**: Easily add new prompt types without code changes
+- **📚 Centralized Prompt Management**: Store, version, and track prompts in MLflow
+- **🧠 Intelligent Prompt Matching**: Automatically match user queries to optimal templates
+- **🔄 Dynamic Parameter Extraction**: Identify and extract parameters from natural language
+- **🔍 Content Type Detection**: Recognize the type of content being requested
+- **🛠️ Multiple AI Providers**: Seamless integration with OpenAI and Ollama
+- **📊 Detailed Response Tracing**: Track prompt optimization and transformation stages
+- **📝 Version Control**: Track prompt history with production and archive aliases
+- **🧩 Extensible Framework**: Add new prompt types without code changes
 
 ## 🚀 Installation
 
+### Basic Installation
+
 ```bash
-# Install the package
+# Install from PyPI
 pip install core4ai
 ```
 
-## ⚙️ Initial Setup
+### Development Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/iRahulPandey/core4ai.git
+cd core4ai
+
+# Install in development mode
+pip install -e ".[dev]"
+```
+
+## ⚙️ Initial Configuration
 
 After installation, run the interactive setup wizard:
 
@@ -30,106 +44,154 @@ core4ai setup
 
 The wizard will guide you through:
 
-1. **MLflow Configuration**: Enter the URI of your local MLflow server
-2. **AI Provider Selection**: Choose between OpenAI or Ollama
-   - For OpenAI: Set your API key as an environment variable
+1. **MLflow Configuration**: 
+   - Enter the URI of your MLflow server (default: http://localhost:8080)
+   - Core4AI will use MLflow to store and version your prompts
+
+2. **AI Provider Selection**:
+   - Choose between OpenAI or Ollama
+   - For OpenAI: Set your API key as an environment variable:
+     ```bash
+     export OPENAI_API_KEY="your-api-key-here"
+     ```
    - For Ollama: Specify the server URI and model to use
 
-## 🛠️ Usage
-
-### Starting the Server
-
-```bash
-# Start the Core4AI server
-core4ai serve
-```
+## 🛠️ Usage Examples
 
 ### Managing Prompts
 
 ```bash
-# Register a new prompt
-core4ai register --name "essay_prompt" --message "Basic essay template" "Write a well-structured essay on {{ topic }} that includes an introduction, body paragraphs, and conclusion."
+# Register a new prompt with a template
+core4ai register --name "essay_prompt" \
+    --message "Basic essay template" \
+    "Write a well-structured essay on {{ topic }} that includes an introduction, body paragraphs, and conclusion."
 
-# Register prompts from a JSON file
+# Register multiple prompts from a JSON file
 core4ai register --file prompts.json
 
-# List available prompts
+# List all available prompts
 core4ai list
+
+# Get details about a specific prompt
+core4ai list --name "essay_prompt@production" --details
+
+# Later, update the same prompt (creates a new version)
+core4ai register --name "email_prompt" "Write an updated {{ formality }} email..."
 ```
 
-### Chatting with AI
+### Basic Chat Interactions
 
 ```bash
-# Basic chat query
+# Simple query - Core4AI will match to the best prompt template
 core4ai chat "Write about the future of AI"
 
-# Verbose mode shows prompt enhancement details
+# Get a simple response without enhancement details
+core4ai chat --simple "Write an essay about climate change"
+
+# See verbose output with prompt enhancement details
 core4ai chat --verbose "Write an email to my boss about a vacation request"
 ```
 
-## 📋 Available Commands
+## 💡 Sample Prompts
 
-- `core4ai setup`: Run the interactive setup wizard
-- `core4ai serve`: Start the Core4AI server
-- `core4ai register`: Register a new prompt or prompts from a file
-- `core4ai list`: List all available prompts
-- `core4ai chat`: Chat with AI using enhanced prompts
+Core4AI comes with several pre-registered prompt templates:
 
-## 🧩 Supported Prompt Types
+```bash
+# Register sample prompts
+core4ai register --samples
+```
 
-Core4AI supports various prompt types, including:
+This will register the following prompt types:
 
-- `essay_prompt`: Academic writing
-- `email_prompt`: Email composition
-- `technical_prompt`: Technical explanations
-- `creative_prompt`: Creative writing
-- `code_prompt`: Code generation
-- `summary_prompt`: Content summarization
-- ... and more!
+| Prompt Type | Description | Sample Variables |
+|-------------|-------------|------------------|
+| `essay_prompt` | Academic writing | topic |
+| `email_prompt` | Email composition | formality, recipient_type, topic |
+| `technical_prompt` | Technical explanations | topic, audience |
+| `creative_prompt` | Creative writing | genre, topic |
+| `code_prompt` | Code generation | language, task, requirements |
+| `summary_prompt` | Content summarization | content, length |
 
 ## 🔄 Provider Configuration
 
 ### OpenAI
 
-To use OpenAI, set your API key as an environment variable:
+To use OpenAI, set your API key:
 
 ```bash
+# Set environment variable (recommended)
 export OPENAI_API_KEY="your-api-key-here"
+
+# Or configure during setup
+core4ai setup
 ```
+
+Available models include:
+- `gpt-3.5-turbo` (default)
+- `gpt-4`
+- `gpt-4-turbo`
 
 ### Ollama
 
 To use Ollama:
 
-1. Ensure your Ollama server is running
-2. During setup, provide:
-   - Server URI (default: http://localhost:11434)
-   - Model name (e.g., llama2)
+1. [Install Ollama](https://ollama.ai/download) on your system
+2. Start the Ollama server:
+   ```bash
+   ollama serve
+   ```
+3. Configure Core4AI:
+   ```bash
+   core4ai setup
+   ```
 
-## 📦 Project Structure
+## 📋 Command Reference
 
-```
-core4ai/
-├── cli/              # Command-line interface
-├── server/           # Server functionality
-├── client/           # Client implementation
-├── prompt_manager/   # MLflow integration
-├── providers/        # AI provider implementations
-└── config/           # Configuration management
-```
+| Command | Description | Examples |
+|---------|-------------|----------|
+| `core4ai setup` | Run the setup wizard | `core4ai setup` |
+| `core4ai register` | Register a new prompt | `core4ai register --name "email_prompt" "Write a {{ formality }} email..."` |
+| `core4ai list` | List available prompts | `core4ai list --details` |
+| `core4ai chat` | Chat with enhanced prompts | `core4ai chat "Write about AI"` |
+| `core4ai version` | Show version info | `core4ai version` |
 
-## 🔧 Troubleshooting
-
-- **MLflow Connection Issues**: Ensure your MLflow server is running and accessible at the configured URI
-- **OpenAI API Key**: Make sure your OpenAI API key is set as an environment variable
-- **Ollama Server**: Verify that your Ollama server is running and the model is available
-
-For more help, use the verbose flag:
+## 🧪 Running Tests
 
 ```bash
-core4ai --verbose [command]
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+pytest
+
+# Run specific test category
+pytest tests/unit
+pytest tests/functional
+pytest tests/integration
 ```
 
-## 📄 License
+## 🤝 Contributing
 
-This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📊 How Core4AI Works
+
+Core4AI follows this workflow to process queries:
+
+1. **Query Analysis**: Analyze the user's query to determine intent
+2. **Prompt Matching**: Match the query to the most appropriate prompt template
+3. **Parameter Extraction**: Extract relevant parameters from the query
+4. **Template Application**: Apply the template with extracted parameters
+5. **Validation**: Validate the enhanced prompt for completeness and accuracy
+6. **Adjustment**: Adjust the prompt if validation issues are found
+7. **AI Response**: Send the optimized prompt to the AI provider
+
+## 📜 License
+
+This project is licensed under the Apache License 2.0

@@ -192,87 +192,29 @@ def list(details, name):
             click.echo(f"Error listing prompts: {result.get('error', 'Unknown error')}")
 
 @cli.command()
-@click.argument('name')
-@click.argument('template', required=False)
-@click.option('--file', '-f', help='Template file to use')
-@click.option('--message', '-m', required=True, help='Commit message describing the changes')
-@click.option('--no-production', is_flag=True, help="Don't set as production alias")
-def update(name, template, file, message, no_production):
-    """Update an existing prompt with a new version."""
-    # Check for MLflow URI
-    mlflow_uri = get_mlflow_uri()
-    if not mlflow_uri:
-        click.echo("Error: MLflow URI not configured. Run 'core4ai setup' first.")
-        sys.exit(1)
-    
-    # Get template content
-    if file:
-        if not Path(file).exists():
-            click.echo(f"Error: File '{file}' not found.")
-            sys.exit(1)
-        
-        with open(file, 'r') as f:
-            template_content = f.read()
-    elif template:
-        template_content = template
-    else:
-        click.echo("Error: Please provide either a template or a file.")
-        sys.exit(1)
-    
-    # Update the prompt
-    result = update_prompt(
-        name=name,
-        template=template_content,
-        commit_message=message,
-        set_as_production=not no_production
-    )
-    
-    if result.get("status") == "success":
-        click.echo(f"Successfully updated '{name}':")
-        click.echo(f"  Previous version: {result['previous_version']}")
-        click.echo(f"  New version: {result['new_version']}")
-        
-        if result.get("production"):
-            click.echo("  Set as production alias.")
-        
-        if result.get("archived"):
-            click.echo(f"  Archived previous production version: {result['previous_production']}")
-    else:
-        click.echo(f"Error updating prompt: {result.get('error', 'Unknown error')}")
-
-@cli.command()
 @click.argument('query')
 @click.option('--verbose', '-v', is_flag=True, help='Show verbose output')
-@click.option('--provider', '-p', help='Override provider (openai/ollama)')
-@click.option('--model', '-m', help='Override model')
 @click.option('--simple', '-s', is_flag=True, help='Show only the response (no enhancement details)')
-def chat(query, verbose, provider, model, simple):
-    """Chat with AI using enhanced prompts."""
+def chat(query, verbose, simple):
+    """Chat with AI using enhanced prompts.
+    
+    Uses the provider configured during 'core4ai setup'.
+    To change providers, run 'core4ai setup' again.
+    """
     mlflow_uri = get_mlflow_uri()
     if not mlflow_uri:
         click.echo("Error: MLflow URI not configured. Run 'core4ai setup' first.")
         sys.exit(1)
     
-    # Get provider config and apply overrides
+    # Get provider config
     provider_config = get_provider_config()
     if not provider_config or not provider_config.get('type'):
         click.echo("Error: AI provider not configured. Run 'core4ai setup' first.")
         sys.exit(1)
     
-    # Apply CLI overrides
-    if provider:
-        provider_config['type'] = provider.lower()
-        
-        # If switching to OpenAI, check for API key
-        if provider.lower() == 'openai' and not provider_config.get('api_key'):
-            api_key = os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                click.echo("Error: OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-                sys.exit(1)
-            provider_config['api_key'] = api_key
-    
-    if model:
-        provider_config['model'] = model
+    # Ensure Ollama has a URI if that's the configured provider
+    if provider_config.get('type') == 'ollama' and not provider_config.get('uri'):
+        provider_config['uri'] = 'http://localhost:11434'
     
     if verbose:
         click.echo(f"Processing query: {query}")
