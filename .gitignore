@@ -1,2 +1,12 @@
 dist
 src/core4ai.egg-info
+.pytest_cache
+.vscode
+src/__pycache__
+src/core4ai/__pycache__
+src/core4ai/*/__pycache__
+src/core4ai/*/*/__pycache__
+src/core4ai/core4ai.egg-info
+tests/__pycache__
+tests/*/__pycache__
+tests/*/*/__pycache__
