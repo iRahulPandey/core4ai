@@ -202,7 +202,7 @@ Core4AI follows this workflow to process queries:
 ### From Query to Enhanced Response
 The user experience with Core4AI is straightforward yet powerful:
 
-![alt text](userflow.png)
+![alt text](user-flow.png)
 
 This workflow ensures that every user query is intelligently matched to the optimal prompt template stored in MLflow, parameters are properly extracted and applied, and the result is validated before being sent to the AI provider.
 
