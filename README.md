@@ -1,8 +1,11 @@
+![alt text](logo.png)
+
 # Core4AI: Contextual Optimization and Refinement Engine for AI
 
 Core4AI is an intelligent system that transforms basic user queries into optimized prompts for AI systems using MLflow Prompt Registry. It dynamically matches user requests to the most appropriate prompt template and applies it with extracted parameters.
 
 ## Architecture
+
 Core4AI's architecture is designed for seamless integration with MLflow while providing flexibility in AI provider selection:
 
 ![alt text](architecture.png)
