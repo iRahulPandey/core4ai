@@ -192,6 +192,48 @@ Core4AI follows this workflow to process queries:
 6. **Adjustment**: Adjust the prompt if validation issues are found
 7. **AI Response**: Send the optimized prompt to the AI provider
 
+## Troubleshooting Installation
+
+### NumPy Binary Incompatibility
+
+If you encounter an error like this during installation or when running Core4AI:
+
+```
+ValueError: numpy.dtype size changed, may indicate binary incompatibility. Expected 96 from C header, got 88 from PyObject
+```
+
+Try reinstalling in the following order:
+
+```bash
+# Remove the problematic packages
+pip uninstall -y numpy pandas mlflow core4ai
+
+# Reinstall in the correct order with specific versions
+pip install numpy==1.26.0
+pip install pandas
+pip install mlflow>=2.21.0
+pip install core4ai
+```
+
+### MLflow Server Connection Issues
+
+If you encounter problems connecting to MLflow:
+
+1. Make sure your MLflow server is running:
+   ```bash
+   mlflow server --host 0.0.0.0 --port 8080
+   ```
+
+2. Verify connection:
+   ```bash
+   curl http://localhost:8080/api/2.0/mlflow/experiments/list
+   ```
+
+3. Configure Core4AI to use your MLflow server:
+   ```bash
+   core4ai setup
+   ```
+
 ## 📜 License
 
 This project is licensed under the Apache License 2.0

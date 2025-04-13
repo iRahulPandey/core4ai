@@ -10,3 +10,4 @@ src/core4ai/core4ai.egg-info
 tests/__pycache__
 tests/*/__pycache__
 tests/*/*/__pycache__
+dist
