@@ -1,4 +1,3 @@
-# core4ai/config/config.py
 import os
 import yaml
 from pathlib import Path
@@ -59,15 +58,13 @@ def get_provider_config():
     provider_type = provider.get('type')
     
     if provider_type == 'openai':
-        api_key = (
-            provider.get('api_key') or 
-            os.environ.get('OPENAI_API_KEY')
-        )
+        # Environment variable should take precedence
+        api_key = os.environ.get('OPENAI_API_KEY') or provider.get('api_key')
         return {
             'type': 'openai', 
             'api_key': api_key,
             'model': provider.get('model', 'gpt-3.5-turbo')
-            }
+        }
     
     elif provider_type == 'ollama':
         return {
