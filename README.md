@@ -2,6 +2,13 @@
 
 Core4AI is an intelligent system that transforms basic user queries into optimized prompts for AI systems using MLflow Prompt Registry. It dynamically matches user requests to the most appropriate prompt template and applies it with extracted parameters.
 
+## Architecture
+Core4AI's architecture is designed for seamless integration with MLflow while providing flexibility in AI provider selection:
+
+![alt text](architecture.png)
+
+This integration allows Core4AI to leverage MLflow's tracking capabilities for prompt versioning while providing a unified interface to multiple AI providers.
+
 ## ✨ Key Features
 
 - **📚 Centralized Prompt Management**: Store, version, and track prompts in MLflow
@@ -191,6 +198,13 @@ Core4AI follows this workflow to process queries:
 5. **Validation**: Validate the enhanced prompt for completeness and accuracy
 6. **Adjustment**: Adjust the prompt if validation issues are found
 7. **AI Response**: Send the optimized prompt to the AI provider
+
+### From Query to Enhanced Response
+The user experience with Core4AI is straightforward yet powerful:
+
+![alt text](user-flow.png)
+
+This workflow ensures that every user query is intelligently matched to the optimal prompt template stored in MLflow, parameters are properly extracted and applied, and the result is validated before being sent to the AI provider.
 
 ## Troubleshooting Installation
 
