@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+include pyproject.toml
+recursive-include src *.py
+# Tests are excluded from the package distribution
+prune tests

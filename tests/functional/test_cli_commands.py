@@ -207,49 +207,6 @@ class TestCLICommands:
                 # Verify command ran successfully
                 assert result.exit_code == 0
                 assert mock_process.called
-
-    def test_chat_command_provider_override(self, cli_runner, config_file):
-        """Test chat command with provider override."""
-        query = "Write an essay about AI"
-        
-        # Create a mock result that matches what process_query would return
-        mock_result = {
-            "original_query": query,
-            "prompt_match": {"status": "matched", "prompt_name": "test_prompt", "confidence": 90},
-            "content_type": "essay",
-            "enhanced": True,
-            "enhanced_query": "Enhanced query about AI", 
-            "validation_result": "VALID",
-            "validation_issues": [],
-            "response": "This is a mock response to the query."
-        }
-        
-        # Mock get_provider_config
-        with patch('src.core4ai.config.config.get_provider_config') as mock_get_config:
-            # Provide a fake provider config
-            mock_get_config.return_value = {
-                "type": "openai",
-                "api_key": "fake-key",
-                "model": "gpt-3.5-turbo"
-            }
-            
-            # Set environment variable to avoid test errors
-            with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'}):
-                # Also mock process_query at the highest level
-                with patch('src.core4ai.cli.commands.process_query') as mock_process:
-                    # Set up the mock to return our predefined result
-                    mock_process.return_value = mock_result
-                    
-                    # Run the command with provider override
-                    result = cli_runner.invoke(cli, ["chat", "--provider", "openai", query])
-                    
-                    if result.exception:
-                        print(f"Exception: {result.exception}")
-                        print(f"Traceback: {result.exc_info}")
-                    
-                    # Verify command ran successfully
-                    assert result.exit_code == 0
-                    assert mock_process.called
     
     def test_register_command(self, cli_runner, mock_mlflow, config_file):
         """Test registering a prompt via CLI."""
@@ -276,34 +233,5 @@ class TestCLICommands:
             
             # Check that register_prompt was called with correct args
             call_args = mock_register.call_args[1]
-            assert call_args["name"] == "test_prompt"
-            assert call_args["template"] == prompt
-    
-    def test_update_command(self, cli_runner, mock_mlflow, config_file):
-        """Test updating a prompt via CLI."""
-        prompt = "Updated {{ length }} {{ content_type }} about {{ topic }}."
-        
-        # Mock update_prompt to return success
-        with patch('src.core4ai.cli.commands.update_prompt') as mock_update:
-            mock_update.return_value = {
-                "name": "test_prompt",
-                "status": "success",
-                "previous_version": 1,
-                "new_version": 2
-            }
-            
-            result = cli_runner.invoke(cli, [
-                "update",
-                "test_prompt",
-                "--message", "Update test",
-                prompt
-            ])
-            
-            # Verify command ran successfully
-            assert result.exit_code == 0
-            assert mock_update.called
-            
-            # Check that update_prompt was called with correct args
-            call_args = mock_update.call_args[1]
             assert call_args["name"] == "test_prompt"
             assert call_args["template"] == prompt

@@ -12,9 +12,15 @@ class OllamaProvider(AIProvider):
     
     def __init__(self, uri, model):
         """Initialize the Ollama provider with URI and model."""
-        self.uri = uri.rstrip('/')
+        # Handle None URI case to prevent attribute errors
+        if uri is None:
+            logger.error("Ollama URI is None. Using default http://localhost:11434")
+            self.uri = "http://localhost:11434"
+        else:
+            self.uri = uri.rstrip('/')
+            
         self.model = model
-        logger.info(f"Ollama provider initialized with model {model} at {uri}")
+        logger.info(f"Ollama provider initialized with model {model} at {self.uri}")
     
     async def generate_response(self, prompt):
         """Generate a response using Ollama."""
