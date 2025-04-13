@@ -5,10 +5,11 @@ import os
 import yaml
 import pytest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from src.core4ai.config.config import (
-    load_config, save_config, get_mlflow_uri, get_provider_config
+    load_config, save_config, get_mlflow_uri, get_provider_config, 
+    CONFIG_DIR, CONFIG_FILE  # Import these for direct patching
 )
 
 class TestConfig:
@@ -91,8 +92,8 @@ class TestConfig:
         if config_path.exists():
             config_path.unlink()
         
-        # Override environment variable to use the temp directory
-        with patch.dict('os.environ', {'CORE4AI_CONFIG_DIR': temp_config_dir}):
+        # Directly patch the CONFIG_FILE path to point to our non-existent file
+        with patch('src.core4ai.config.config.CONFIG_FILE', config_path):
             # Load should return empty dict
             config = load_config()
             assert isinstance(config, dict)
