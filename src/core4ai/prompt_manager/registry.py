@@ -1,11 +1,24 @@
+"""
+Registry module for Core4AI prompts.
+
+This module handles registering, listing, and loading prompts from MLflow.
+"""
 import os
 import json
 import logging
 import re
 import mlflow
-from typing import Dict, Any, Optional, List
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Set
+
+# Import new modules
+from .prompt_parser import parse_prompt_file, find_prompt_files, load_prompts_from_directory
+from .prompt_types import get_prompt_types, add_prompt_type, add_multiple_prompt_types, check_prompt_exists
 
 logger = logging.getLogger("core4ai.prompt_registry")
+
+# Default location for sample prompts
+SAMPLE_PROMPTS_DIR = Path(__file__).parent.parent / "sample_prompts"
 
 def setup_mlflow_connection():
     """Setup connection to MLflow server."""
@@ -44,6 +57,24 @@ def register_prompt(
     setup_mlflow_connection()
     
     try:
+        # Initialize tags if None
+        if tags is None:
+            tags = {}
+            
+        # Extract type from name if not specified in tags
+        if 'type' not in tags and '_prompt' in name:
+            # Extract everything before _prompt as the type
+            prompt_type = name.replace('_prompt', '')
+            tags['type'] = prompt_type
+            
+            # Add to prompt types registry
+            from .prompt_types import add_prompt_type
+            add_prompt_type(prompt_type)
+        elif 'type' in tags:
+            # Add existing type to registry
+            from .prompt_types import add_prompt_type
+            add_prompt_type(tags['type'])
+            
         # Check if the prompt already exists with a production alias
         previous_production_version = None
         try:
@@ -58,7 +89,7 @@ def register_prompt(
             name=name,
             template=template,
             commit_message=commit_message,
-            tags=tags or {},
+            tags=tags,
             version_metadata=version_metadata or {}
         )
         
@@ -128,6 +159,8 @@ def register_from_file(file_path: str, set_as_production: bool = True) -> Dict[s
             raise ValueError("JSON file must contain a 'prompts' list")
         
         results = []
+        prompt_types = []
+        
         for prompt_data in data["prompts"]:
             name = prompt_data.get("name")
             if not name:
@@ -139,15 +172,32 @@ def register_from_file(file_path: str, set_as_production: bool = True) -> Dict[s
                 logger.warning(f"Skipping prompt '{name}' without template")
                 continue
             
+            # Extract tags
+            tags = prompt_data.get("tags", {})
+            
+            # Extract prompt type if available
+            if 'type' in tags:
+                prompt_types.append(tags['type'])
+            elif '_' in name:
+                # Try to derive type from name (e.g., essay_prompt -> essay)
+                prompt_type = name.split('_')[0]
+                prompt_types.append(prompt_type)
+                if 'type' not in tags:
+                    tags['type'] = prompt_type
+            
             result = register_prompt(
                 name=name,
                 template=template,
                 commit_message=prompt_data.get("commit_message", "Registered from file"),
-                tags=prompt_data.get("tags"),
+                tags=tags,
                 version_metadata=prompt_data.get("version_metadata"),
                 set_as_production=set_as_production
             )
             results.append(result)
+        
+        # Register extracted prompt types
+        if prompt_types:
+            add_multiple_prompt_types(prompt_types)
         
         return {
             "status": "success",
@@ -163,90 +213,167 @@ def register_from_file(file_path: str, set_as_production: bool = True) -> Dict[s
             "error": str(e)
         }
 
-def register_sample_prompts() -> Dict[str, Any]:
+def register_from_markdown(file_path: str, set_as_production: bool = True) -> Dict[str, Any]:
     """
-    Register standard sample prompts for each content type.
+    Register a prompt from a markdown file.
     
+    Args:
+        file_path: Path to the markdown file
+        set_as_production: Whether to set this version as the production alias
+        
     Returns:
         Dictionary with registration results
     """
     setup_mlflow_connection()
     
+    try:
+        file_path = Path(file_path)
+        if not file_path.exists():
+            return {
+                "status": "error",
+                "error": f"File '{file_path}' not found",
+                "file": str(file_path)
+            }
+        
+        # Parse the markdown file
+        prompt_data = parse_prompt_file(file_path)
+        if not prompt_data:
+            return {
+                "status": "error",
+                "error": f"Failed to parse '{file_path}' as a prompt template",
+                "file": str(file_path)
+            }
+        
+        # Register the prompt
+        result = register_prompt(
+            name=prompt_data["name"],
+            template=prompt_data["template"],
+            commit_message=f"Registered from {file_path.name}",
+            tags=prompt_data.get("tags", {}),
+            set_as_production=set_as_production
+        )
+        
+        # Add prompt type to registry if available
+        if "type" in prompt_data.get("tags", {}):
+            prompt_type = prompt_data["tags"]["type"]
+            add_prompt_type(prompt_type)
+        elif "_" in prompt_data["name"]:
+            # Extract type from name (e.g., essay_prompt -> essay)
+            prompt_type = prompt_data["name"].split("_")[0]
+            add_prompt_type(prompt_type)
+        
+        return {
+            **result,
+            "file": str(file_path),
+            "template_variables": prompt_data.get("variables", [])
+        }
+    
+    except Exception as e:
+        logger.error(f"Error registering prompt from '{file_path}': {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "file": str(file_path)
+        }
+
+def register_sample_prompts(all_prompts=False, custom_dir=None, non_existing_only=False) -> Dict[str, Any]:
+    """
+    Register sample prompts from the sample prompts directory or a custom directory.
+    
+    Args:
+        all_prompts: Whether to register all prompts regardless of existing versions
+        custom_dir: Custom directory to load prompts from
+        non_existing_only: Only register prompts that don't exist in MLflow
+        
+    Returns:
+        Dictionary with registration results
+    """
+    setup_mlflow_connection()
+    
+    # Use custom directory if provided, otherwise use default
+    prompts_dir = Path(custom_dir) if custom_dir else SAMPLE_PROMPTS_DIR
+    
+    # Ensure directory exists
+    if not prompts_dir.exists():
+        logger.warning(f"Prompt directory not found: {prompts_dir}")
+        return {
+            "status": "error",
+            "error": f"Prompt directory not found: {prompts_dir}",
+            "registered": 0,
+            "results": []
+        }
+    
+    # Get existing prompts if needed
+    existing_prompts = set()
+    if non_existing_only:
+        try:
+            existing_data = list_prompts()
+            if existing_data["status"] == "success":
+                existing_prompts = {p["name"] for p in existing_data["prompts"]}
+        except Exception as e:
+            logger.warning(f"Could not get existing prompts: {e}")
+    
+    # Load prompts from directory
+    prompt_files = find_prompt_files(prompts_dir)
     results = []
+    prompt_types = []
     
-    # Essay prompt
-    essay_result = register_prompt(
-        name="essay_prompt",
-        template="""
-        Write a well-structured essay on {{ topic }} that includes:
-        - A compelling introduction that provides context and states your thesis
-        - 2-3 body paragraphs, each with a clear topic sentence and supporting evidence
-        - Logical transitions between paragraphs that guide the reader
-        - A conclusion that synthesizes your main points and offers final thoughts
-        
-        The essay should be informative, well-reasoned, and demonstrate critical thinking.
-        """,
-        commit_message="Initial essay prompt",
-        tags={"task": "writing", "type": "essay"}
-    )
-    results.append(essay_result)
+    for file_path in prompt_files:
+        try:
+            prompt_data = parse_prompt_file(file_path)
+            if not prompt_data:
+                continue
+                
+            prompt_name = prompt_data["name"]
+            
+            # Skip if exists and non_existing_only is True
+            if non_existing_only and prompt_name in existing_prompts:
+                logger.info(f"Skipping existing prompt: {prompt_name}")
+                results.append({
+                    "name": prompt_name,
+                    "status": "skipped",
+                    "message": "Prompt already exists"
+                })
+                continue
+            
+            # Register prompt
+            result = register_prompt(
+                name=prompt_name,
+                template=prompt_data["template"],
+                commit_message=f"Registered from {file_path.name}",
+                tags=prompt_data.get("tags", {}),
+                set_as_production=True
+            )
+            
+            # Add prompt type to registry if available
+            if "type" in prompt_data.get("tags", {}):
+                prompt_type = prompt_data["tags"]["type"]
+                prompt_types.append(prompt_type)
+            elif "_" in prompt_name:
+                # Extract type from name (e.g., essay_prompt -> essay)
+                prompt_type = prompt_name.split("_")[0]
+                prompt_types.append(prompt_type)
+            
+            results.append(result)
+            
+        except Exception as e:
+            logger.error(f"Error registering prompt from {file_path}: {e}")
+            results.append({
+                "name": file_path.stem,
+                "status": "error",
+                "error": str(e)
+            })
     
-    # Email prompt
-    email_result = register_prompt(
-        name="email_prompt",
-        template="""
-        Write a {{ formality }} email to my {{ recipient_type }} about {{ topic }} that includes:
-        - A clear subject line
-        - Appropriate greeting
-        - Brief introduction stating the purpose
-        - Main content in short paragraphs
-        - Specific action items or requests clearly highlighted
-        - Professional closing
-        
-        The tone should be {{ tone }}.
-        """,
-        commit_message="Initial email prompt",
-        tags={"task": "writing", "type": "email"}
-    )
-    results.append(email_result)
-    
-    # Technical prompt
-    technical_result = register_prompt(
-        name="technical_prompt",
-        template="""
-        Provide a clear technical explanation of {{ topic }} for a {{ audience }} audience that:
-        - Begins with a conceptual overview that anyone can understand
-        - Uses analogies or real-world examples to illustrate complex concepts
-        - Defines technical terminology when first introduced
-        - Gradually increases in technical depth
-        - Includes practical applications or implications where relevant
-        - Addresses common misunderstandings or misconceptions
-        """,
-        commit_message="Initial technical prompt",
-        tags={"task": "explanation", "type": "technical"}
-    )
-    results.append(technical_result)
-    
-    # Creative prompt
-    creative_result = register_prompt(
-        name="creative_prompt",
-        template="""
-        Write a creative {{ genre }} about {{ topic }} that:
-        - Uses vivid sensory details and imagery
-        - Develops interesting and multidimensional characters (if applicable)
-        - Creates an engaging narrative arc with tension and resolution
-        - Establishes a distinct mood, tone, and atmosphere
-        - Employs figurative language to enhance meaning
-        - Avoids clichés and predictable elements
-        """,
-        commit_message="Initial creative prompt",
-        tags={"task": "writing", "type": "creative"}
-    )
-    results.append(creative_result)
+    # Register all extracted prompt types
+    if prompt_types:
+        add_multiple_prompt_types(prompt_types)
     
     return {
         "status": "success",
-        "registered": len(results),
+        "registered": len([r for r in results if r.get("status") == "success"]),
+        "skipped": len([r for r in results if r.get("status") == "skipped"]),
+        "failed": len([r for r in results if r.get("status") == "error"]),
+        "total": len(results),
         "results": results
     }
 
@@ -261,15 +388,23 @@ def load_all_prompts() -> Dict[str, Any]:
     
     prompts = {}
     
-    # Known prompt naming patterns
-    known_prompt_types = [
-        "essay", "email", "technical", "creative", "code", 
-        "summary", "analysis", "qa", "custom", "social_media", 
-        "blog", "report", "letter", "presentation", "review",
-        "comparison", "instruction"
-    ]
+    # Get prompt types from registry
+    prompt_types = get_prompt_types()
     
-    for prompt_type in known_prompt_types:
+    # If no types in registry, use a default set
+    if not prompt_types:
+        prompt_types = [
+            "essay", "email", "technical", "creative", "code", 
+            "summary", "analysis", "qa", "custom", "social_media", 
+            "blog", "report", "letter", "presentation", "review",
+            "comparison", "instruction"
+        ]
+        
+        # Add them to the registry for future use
+        add_multiple_prompt_types(prompt_types)
+    
+    # Try to load each prompt type
+    for prompt_type in prompt_types:
         prompt_name = f"{prompt_type}_prompt"
         
         # First try with production alias (preferred)
@@ -302,20 +437,23 @@ def list_prompts() -> Dict[str, Any]:
     setup_mlflow_connection()
     
     try:
-        # Standard content types
-        content_types = ["essay", "email", "technical", "creative"]
-        # Custom types we'll look for
-        custom_types = ["code", "summary", "analysis", "qa", "custom", "social_media", 
-                       "blog", "report", "letter", "presentation", "review", "comparison", 
-                       "instruction"]
-        # Combined list for checking
-        all_types = content_types + custom_types
+        # Get prompt types from registry
+        prompt_types = get_prompt_types()
+        
+        # If no types in registry, use a default set
+        if not prompt_types:
+            prompt_types = [
+                "essay", "email", "technical", "creative", "code", 
+                "summary", "analysis", "qa", "custom", "social_media", 
+                "blog", "report", "letter", "presentation", "review",
+                "comparison", "instruction"
+            ]
         
         prompts = []
         
         # Check for standard and custom prompt types
-        for content_type in all_types:
-            prompt_name = f"{content_type}_prompt"
+        for prompt_type in prompt_types:
+            prompt_name = f"{prompt_type}_prompt"
             try:
                 # Try different alias approaches to get as much information as possible
                 production_version = None
@@ -353,7 +491,7 @@ def list_prompts() -> Dict[str, Any]:
                 # Add prompt information
                 prompt_info = {
                     "name": prompt_name,
-                    "type": content_type,
+                    "type": prompt_type,
                     "latest_version": latest_prompt.version,
                     "production_version": production_version,
                     "archived_version": archived_version,
@@ -377,6 +515,155 @@ def list_prompts() -> Dict[str, Any]:
             "status": "error",
             "error": str(e),
             "prompts": []
+        }
+
+def import_existing_prompts(prompt_names: List[str]) -> Dict[str, Any]:
+    """
+    Import existing prompts from MLflow into Core4AI.
+    
+    Args:
+        prompt_names: List of prompt names to import
+        
+    Returns:
+        Dictionary with import results
+    """
+    setup_mlflow_connection()
+    
+    results = []
+    prompt_types = []
+    
+    for prompt_name in prompt_names:
+        try:
+            # Clean up the prompt name
+            prompt_name = prompt_name.strip()
+            if not prompt_name:
+                continue
+                
+            # Try to load the prompt
+            prompt = None
+            try:
+                # First try with production alias
+                prompt = mlflow.load_prompt(f"prompts:/{prompt_name}@production")
+                logger.info(f"Found prompt '{prompt_name}' with production alias")
+            except Exception:
+                try:
+                    # Then try latest version
+                    prompt = mlflow.load_prompt(f"prompts:/{prompt_name}")
+                    logger.info(f"Found prompt '{prompt_name}' latest version")
+                except Exception as e:
+                    logger.warning(f"Could not find prompt '{prompt_name}': {e}")
+                    results.append({
+                        "name": prompt_name,
+                        "status": "error",
+                        "error": f"Could not find prompt in MLflow"
+                    })
+                    continue
+            
+            # Extract prompt type from name
+            if "_" in prompt_name:
+                prompt_type = prompt_name.split("_")[0]
+                prompt_types.append(prompt_type)
+                
+            # Extract variables from template for info
+            variables = []
+            for match in re.finditer(r'{{([^{}]+)}}', prompt.template):
+                var_name = match.group(1).strip()
+                if var_name not in variables:
+                    variables.append(var_name)
+                
+            results.append({
+                "name": prompt_name,
+                "status": "success",
+                "version": prompt.version,
+                "variables": variables
+            })
+            
+        except Exception as e:
+            logger.error(f"Error importing prompt '{prompt_name}': {e}")
+            results.append({
+                "name": prompt_name,
+                "status": "error",
+                "error": str(e)
+            })
+    
+    # Register all extracted prompt types
+    if prompt_types:
+        add_multiple_prompt_types(prompt_types)
+    
+    return {
+        "status": "success",
+        "imported": len([r for r in results if r.get("status") == "success"]),
+        "failed": len([r for r in results if r.get("status") == "error"]),
+        "total": len(results),
+        "results": results,
+        "prompt_types": prompt_types
+    }
+
+def create_prompt_template(prompt_name: str, output_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    Create a template prompt file for users to customize.
+    
+    Args:
+        prompt_name: Name of the prompt
+        output_dir: Directory to save the template (defaults to current directory)
+        
+    Returns:
+        Dictionary with creation results
+    """
+    if not output_dir:
+        output_dir = Path.cwd()
+    
+    # Ensure directory exists
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Ensure name has _prompt suffix
+    if not prompt_name.endswith("_prompt"):
+        prompt_name = f"{prompt_name}_prompt"
+    
+    # Get prompt type from name
+    prompt_type = prompt_name.split("_")[0] if "_" in prompt_name else "custom"
+    title = " ".join(word.capitalize() for word in prompt_type.split("_")) + " Prompt"
+    
+    # Create file path
+    file_path = output_dir / f"{prompt_name}.md"
+    
+    # Create template content
+    content = f"""# {title}
+
+A template for {prompt_type} content.
+
+## Template
+
+Write a {{ style }} {prompt_type} about {{ topic }} that includes:
+- Important point 1
+- Important point 2
+- Important point 3
+
+Please ensure the tone is {{ tone }} and suitable for {{ audience }}.
+
+## Metadata
+- Type: {prompt_type}
+- Task: writing
+- Author: Custom
+"""
+    
+    try:
+        # Write file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        return {
+            "status": "success",
+            "file_path": str(file_path),
+            "prompt_name": prompt_name
+        }
+    except Exception as e:
+        logger.error(f"Error creating prompt template: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "prompt_name": prompt_name
         }
 
 def update_prompt(name: str, template: str, commit_message: str, set_as_production: bool = True) -> Dict[str, Any]:

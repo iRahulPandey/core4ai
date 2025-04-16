@@ -52,13 +52,18 @@ After installation, run the interactive setup wizard:
 core4ai setup
 ```
 
+
 The wizard will guide you through:
 
 1. **MLflow Configuration**: 
    - Enter the URI of your MLflow server (default: http://localhost:8080)
    - Core4AI will use MLflow to store and version your prompts
 
-2. **AI Provider Selection**:
+2. **Existing Prompts Import**:
+   - If you already have prompts in MLflow, you can import them into Core4AI
+   - You can provide prompt names directly or via a file
+
+3. **AI Provider Selection**:
    - Choose between OpenAI or Ollama
    - For OpenAI: Set your API key as an environment variable:
      ```bash
@@ -66,28 +71,117 @@ The wizard will guide you through:
      ```
    - For Ollama: Specify the server URI and model to use
 
-## 🛠️ Usage Examples
+## 📝 Prompt Management
 
-### Managing Prompts
+Core4AI uses a powerful prompt management system that allows you to create, register, and use prompt templates in various formats.
+
+### Prompt Template Format
+
+Core4AI uses markdown files to define prompt templates. Each template should follow this structure:
+
+```markdown
+# Prompt Name: example_prompt
+
+## Description
+A brief description of what this prompt does.
+
+## Tags
+type: example
+task: writing
+purpose: demonstration
+
+## Template
+Write a {{ style }} response about {{ topic }} that includes:
+- Important point 1
+- Important point 2
+- Important point 3
+
+Please ensure the tone is {{ tone }} and suitable for {{ audience }}.
+```
+
+#### Key Guidelines
+
+1. **Prompt Name** is required and must:
+   - Be the first line of the file
+   - Use the format `# Prompt Name: name_prompt`
+   - End with `_prompt` suffix
+   - Use underscores instead of spaces (e.g., `cover_letter_prompt`)
+
+2. **Template Section** must:
+   - Use double braces for variables: `{{ variable_name }}`
+   - Have at least one variable
+   - Provide clear instructions
+
+3. **Tags Section** is recommended and should include:
+   - `type`: The prompt category (e.g., essay, email, code)
+   - `task`: The purpose (e.g., writing, analysis, instruction)
+   - Additional metadata as needed
+
+### Creating Prompt Templates
+
+You can create a new prompt template using the CLI:
 
 ```bash
-# Register a new prompt with a template
-core4ai register --name "essay_prompt" \
-    --message "Basic essay template" \
-    "Write a well-structured essay on {{ topic }} that includes an introduction, body paragraphs, and conclusion."
+# Create a new prompt template in the current directory
+core4ai register --create email
 
-# Register multiple prompts from a JSON file
-core4ai register --file prompts.json
+# Create a prompt template in a specific directory
+core4ai register --create blog --dir ./my_prompts
+```
 
-# List all available prompts
+This will:
+1. Create a template file with the proper structure
+2. Open it in your default editor for customization
+3. Offer to register it immediately after editing
+
+### Registering Prompts
+
+Core4AI supports multiple ways to register prompts:
+
+```bash
+# Register a single prompt directly
+core4ai register --name "email_prompt" "Write a {{ formality }} email..."
+
+# Register from a markdown file
+core4ai register --markdown ./my_prompts/email_prompt.md
+
+# Register all prompts from a directory
+core4ai register --dir ./my_prompts
+
+# Register built-in sample prompts
+core4ai register --samples
+
+# Register only prompts that don't exist yet
+core4ai register --dir ./my_prompts --only-new
+```
+
+### Managing Prompt Types
+
+Core4AI automatically tracks prompt types based on the prompt names:
+
+```bash
+# List all registered prompt types
+core4ai list-types
+```
+
+The type is extracted from the prompt name:
+- For `email_prompt` → type is `email`
+- For `cover_letter_prompt` → type is `cover_letter`
+
+### Listing Available Prompts
+
+```bash
+# List all prompts
 core4ai list
 
-# Get details about a specific prompt
-core4ai list --name "essay_prompt@production" --details
+# Show detailed information
+core4ai list --details
 
-# Later, update the same prompt (creates a new version)
-core4ai register --name "email_prompt" "Write an updated {{ formality }} email..."
+# Get details for a specific prompt
+core4ai list --name email_prompt
 ```
+
+## 🛠️ Using Core4AI
 
 ### Basic Chat Interactions
 
@@ -102,7 +196,7 @@ core4ai chat --simple "Write an essay about climate change"
 core4ai chat --verbose "Write an email to my boss about a vacation request"
 ```
 
-## 💡 Sample Prompts
+### Sample Prompts
 
 Core4AI comes with several pre-registered prompt templates:
 
@@ -116,11 +210,28 @@ This will register the following prompt types:
 | Prompt Type | Description | Sample Variables |
 |-------------|-------------|------------------|
 | `essay_prompt` | Academic writing | topic |
-| `email_prompt` | Email composition | formality, recipient_type, topic |
+| `email_prompt` | Email composition | formality, recipient_type, topic, tone |
 | `technical_prompt` | Technical explanations | topic, audience |
 | `creative_prompt` | Creative writing | genre, topic |
 | `code_prompt` | Code generation | language, task, requirements |
-| `summary_prompt` | Content summarization | content, length |
+| `cover_letter_prompt` | Cover letter writing | position, company, experience_years |
+| `qa_prompt` | Question answering | topic, tone, formality |
+| `tutorial_prompt` | Step-by-step guides | level, task, tool_or_method |
+| `marketing_prompt` | Marketing content | content_format, product_or_service, target_audience |
+| `report_prompt` | Report generation | length, report_type, topic |
+| `social_media_prompt` | Social media posts | number, platform, topic |
+| `data_analysis_prompt` | Data analysis reports | data_type, subject, data |
+| `comparison_prompt` | Compare items or concepts | item1, item2 |
+| `product_description_prompt` | Product descriptions | length, product_name, product_category |
+| `summary_prompt` | Content summarization | length, content_type, content |
+| `test_prompt` | Test examples | formality |
+
+Each prompt is designed for specific use cases and includes variables that can be automatically extracted from user queries. You can view the details of any prompt with:
+
+```bash
+# View details of a specific prompt
+core4ai list --name email_prompt@production --details
+```
 
 ## 🔄 Provider Configuration
 
@@ -160,35 +271,11 @@ To use Ollama:
 | Command | Description | Examples |
 |---------|-------------|----------|
 | `core4ai setup` | Run the setup wizard | `core4ai setup` |
-| `core4ai register` | Register a new prompt | `core4ai register --name "email_prompt" "Write a {{ formality }} email..."` |
+| `core4ai register` | Register prompts | `core4ai register --samples`, `core4ai register --create email` |
 | `core4ai list` | List available prompts | `core4ai list --details` |
+| `core4ai list-types` | List prompt types | `core4ai list-types` |
 | `core4ai chat` | Chat with enhanced prompts | `core4ai chat "Write about AI"` |
 | `core4ai version` | Show version info | `core4ai version` |
-
-## 🧪 Running Tests
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Run all tests
-pytest
-
-# Run specific test category
-pytest tests/unit
-pytest tests/functional
-pytest tests/integration
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## 📊 How Core4AI Works
 
@@ -243,7 +330,7 @@ If you encounter problems connecting to MLflow:
 
 2. Verify connection:
    ```bash
-   curl http://localhost:8080/api/2.0/mlflow/experiments/list
+   curl http://localhost:8080
    ```
 
 3. Configure Core4AI to use your MLflow server:
