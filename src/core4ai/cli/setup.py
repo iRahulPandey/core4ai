@@ -72,6 +72,71 @@ def setup_wizard():
     
     config['mlflow_uri'] = mlflow_uri
     
+    # Ask about existing prompts in MLflow
+    if click.confirm("\nDo you already have prompts in MLflow that you want Core4AI to use?", default=False):
+        click.echo("\nYou can provide existing prompt names to import into Core4AI.")
+        click.echo("This will allow Core4AI to use these prompts for query matching.")
+        
+        import_method = click.prompt(
+            "How would you like to import prompts?",
+            type=click.Choice(['enter', 'file'], case_sensitive=False),
+            default='enter'
+        )
+        
+        if import_method.lower() == 'enter':
+            # Direct input
+            prompt_names = click.prompt(
+                "Enter comma-separated prompt names (e.g., essay_prompt,email_prompt)",
+                default=""
+            )
+            
+            if prompt_names:
+                from ..prompt_manager.registry import import_existing_prompts
+                prompt_list = [name.strip() for name in prompt_names.split(",")]
+                import_result = import_existing_prompts(prompt_list)
+                
+                click.echo(f"\n✅ Imported {import_result['imported']} prompts")
+                if import_result['failed'] > 0:
+                    click.echo(f"❌ Failed to import {import_result['failed']} prompts")
+                    
+                # Add detected prompt types to output
+                if import_result.get('prompt_types'):
+                    click.echo(f"🏷️  Registered prompt types: {', '.join(import_result['prompt_types'])}")
+        else:
+            # File input
+            file_path = click.prompt(
+                "Enter the path to a file containing prompt names (one per line or comma-separated)",
+                type=click.Path(exists=True)
+            )
+            
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                
+                # Handle both formats (comma-separated or newline-separated)
+                if ',' in content:
+                    prompt_list = [name.strip() for name in content.split(",")]
+                else:
+                    prompt_list = [name.strip() for name in content.splitlines()]
+                
+                prompt_list = [name for name in prompt_list if name]  # Remove empty names
+                
+                if prompt_list:
+                    from ..prompt_manager.registry import import_existing_prompts
+                    import_result = import_existing_prompts(prompt_list)
+                    
+                    click.echo(f"\n✅ Imported {import_result['imported']} prompts")
+                    if import_result['failed'] > 0:
+                        click.echo(f"❌ Failed to import {import_result['failed']} prompts")
+                        
+                    # Add detected prompt types to output
+                    if import_result.get('prompt_types'):
+                        click.echo(f"🏷️  Registered prompt types: {', '.join(import_result['prompt_types'])}")
+                else:
+                    click.echo("No valid prompt names found in the file.")
+            except Exception as e:
+                click.echo(f"Error reading file: {e}")
+    
     # AI Provider
     provider_options = ['OpenAI', 'Ollama']
     provider_choice = click.prompt(

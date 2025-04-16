@@ -50,13 +50,16 @@ class TestCLICommands:
                 ]
             }
             
-            result = cli_runner.invoke(cli, ["register", "--samples"])
+            # Mock the confirm to avoid input prompt
+            with patch('click.confirm', return_value=False):
+                result = cli_runner.invoke(cli, ["register", "--samples"])
             
             # Verify command ran successfully
             assert result.exit_code == 0
             assert mock_register.called
-            assert "success" in result.stdout
-    
+            # Updated to match new output format
+            assert "Successfully registered 4 prompts" in result.stdout
+
     def test_list_command(self, cli_runner, mock_mlflow, config_file):
         """Test listing prompts."""
         # Mock list_prompts to return sample data
@@ -220,10 +223,10 @@ class TestCLICommands:
                 "version": 1
             }
             
+            # Updated to remove --message argument which is no longer supported
             result = cli_runner.invoke(cli, [
                 "register",
                 "--name", "test_prompt",
-                "--message", "Test prompt",
                 prompt
             ])
             
@@ -235,3 +238,6 @@ class TestCLICommands:
             call_args = mock_register.call_args[1]
             assert call_args["name"] == "test_prompt"
             assert call_args["template"] == prompt
+            
+            # Updated to match new output format
+            assert "Successfully registered: test_prompt" in result.stdout
