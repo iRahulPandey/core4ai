@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import patch, AsyncMock
 from tests.conftest import MockPrompt
 
-from src.core4ai.client.client import process_query
+from src.core4ai.engine.processor import process_query
 from src.core4ai.prompt_manager.registry import register_prompt
 
 class TestPromptProcessing:

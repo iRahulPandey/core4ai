@@ -175,7 +175,7 @@ def cli_runner():
 def mock_process_query():
     """Mock the process_query function for CLI testing."""
     # The correct import path must match the one used in cli/commands.py
-    with patch('src.core4ai.client.client.process_query', autospec=True) as mock:
+    with patch('src.core4ai.engine.processor.process_query', autospec=True) as mock:
         async def mock_process(*args, **kwargs):
             return {
                 "original_query": "test query",

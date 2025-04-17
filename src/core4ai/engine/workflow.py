@@ -1,17 +1,18 @@
+"""
+Core workflow engine for query enhancement and response generation.
+"""
 import logging
 import json
 import re
-from typing import Dict, Any, TypedDict, List, Optional, Tuple
 import asyncio
+from typing import Dict, Any, TypedDict, List, Optional, Tuple
 
 # Import LangGraph components
 from langgraph.graph import StateGraph, END, START
 from langchain_core.messages import HumanMessage
 
-# Import module components
-from ..prompt_manager.registry import load_all_prompts
-
-logger = logging.getLogger("core4ai.workflow")
+# Set up logging
+logger = logging.getLogger("core4ai.engine.workflow")
 
 # Define state schema for type safety
 class QueryState(TypedDict, total=False):

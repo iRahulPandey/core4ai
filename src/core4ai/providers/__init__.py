@@ -1,4 +1,3 @@
-# core4ai/providers/__init__.py
 from abc import ABC, abstractmethod
 import logging
 
@@ -28,3 +27,8 @@ class AIProvider(ABC):
             return OllamaProvider(config.get('uri'), config.get('model'))
         
         raise ValueError(f"Unknown provider type: {provider_type}")
+
+# Export utility functions
+from .utilities import verify_ollama_running, get_ollama_models
+
+__all__ = ['AIProvider', 'verify_ollama_running', 'get_ollama_models']

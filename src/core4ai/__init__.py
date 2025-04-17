@@ -6,11 +6,12 @@ A package for transforming basic user queries into optimized LLM prompts
 using MLflow Prompt Registry.
 """
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 from .cli.commands import cli
 from .config.config import load_config, save_config, get_mlflow_uri, get_provider_config
 from .providers import AIProvider
+from .engine.processor import process_query, list_prompts
 
 __all__ = [
     "cli", 
@@ -18,5 +19,7 @@ __all__ = [
     "save_config", 
     "get_mlflow_uri", 
     "get_provider_config",
-    "AIProvider"
+    "AIProvider",
+    "process_query",
+    "list_prompts"
 ]
