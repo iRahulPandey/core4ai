@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch, MagicMock, AsyncMock
 from tests.conftest import MockPrompt
 
-from src.core4ai.server.workflow import (
+from src.core4ai.engine.workflow import (
     match_prompt,
     enhance_query,
     validate_query,

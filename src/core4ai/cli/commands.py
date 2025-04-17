@@ -15,7 +15,8 @@ from ..prompt_manager.registry import (
     register_prompt, register_from_file, register_from_markdown, list_prompts as registry_list_prompts,
     register_sample_prompts, update_prompt, get_prompt_details, create_prompt_template
 )
-from ..client.client import process_query
+from ..engine.processor import process_query
+from ..providers.utilities import verify_ollama_running, get_ollama_models
 from .setup import setup_wizard
 
 # Set up logging

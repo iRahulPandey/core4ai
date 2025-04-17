@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 from ..config.config import load_config, save_config, ensure_config_dir
-from ..client.client import verify_ollama_running, get_ollama_models
+from ..providers.utilities import verify_ollama_running, get_ollama_models
 
 logger = logging.getLogger("core4ai.setup")
 
