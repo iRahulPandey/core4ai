@@ -1,15 +1,14 @@
-# core4ai/providers/openai_provider.py
 import logging
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from . import AIProvider
+from .base import AIProvider  # Changed from: from . import AIProvider
 
 logger = logging.getLogger("core4ai.providers.openai")
 
 class OpenAIProvider(AIProvider):
     """OpenAI provider implementation."""
     
-    def __init__(self, api_key):
+    def __init__(self, api_key: str):
         """Initialize the OpenAI provider with API key."""
         self.api_key = api_key
         if not self.api_key:

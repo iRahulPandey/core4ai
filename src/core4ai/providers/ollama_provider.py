@@ -3,7 +3,7 @@ Ollama provider for Core4AI.
 """
 import logging
 import aiohttp
-from . import AIProvider
+from .base import AIProvider
 
 logger = logging.getLogger("core4ai.providers.ollama")
 

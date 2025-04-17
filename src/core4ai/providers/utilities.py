@@ -1,12 +1,11 @@
 import logging
 import subprocess
+import requests
 
 logger = logging.getLogger("core4ai.providers.utilities")
 
 def verify_ollama_running(uri: str = "http://localhost:11434") -> bool:
     """Verify if Ollama is running at the given URI."""
-    import requests
-    
     try:
         response = requests.get(f"{uri}/api/tags", timeout=2)
         return response.status_code == 200
@@ -16,8 +15,6 @@ def verify_ollama_running(uri: str = "http://localhost:11434") -> bool:
 def get_ollama_models(uri: str = "http://localhost:11434") -> list:
     """Fetch the list of available Ollama models."""
     # Try using direct API call first
-    import requests
-    
     try:
         response = requests.get(f"{uri}/api/tags")
         if response.status_code == 200:
