@@ -2,6 +2,8 @@
 
 # Core4AI: Contextual Optimization and Refinement Engine for AI
 
+[![PyPI Downloads](https://static.pepy.tech/badge/core4ai)](https://pepy.tech/projects/core4ai)
+
 Core4AI is an intelligent system that transforms basic user queries into optimized prompts for AI systems using MLflow Prompt Registry. It dynamically matches user requests to the most appropriate prompt template and applies it with extracted parameters.
 
 ## Architecture
