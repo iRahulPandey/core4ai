@@ -21,6 +21,7 @@ async def process_query(query: str, provider_config: Optional[Dict[str, Any]] = 
     from ..providers import AIProvider
     from .workflow import create_workflow
     
+    # Important: Only fetch from config if not provided
     if not provider_config:
         from ..config.config import get_provider_config
         provider_config = get_provider_config()
@@ -34,7 +35,7 @@ async def process_query(query: str, provider_config: Optional[Dict[str, Any]] = 
         logger.info(f"Using default Ollama URI: http://localhost:11434")
     
     try:
-        # Initialize provider
+        # Initialize provider with the provided configuration
         provider = AIProvider.create(provider_config)
         
         # Load prompts
@@ -44,15 +45,17 @@ async def process_query(query: str, provider_config: Optional[Dict[str, Any]] = 
         # Create workflow
         workflow = create_workflow()
         
-        # Run workflow
+        # Run workflow with provider config
         initial_state = {
             "user_query": query,
-            "available_prompts": prompts
+            "available_prompts": prompts,
+            "provider_config": provider_config  # Pass provider config to workflow
         }
         
         if verbose:
             logger.info(f"Running workflow with query: {query}")
             logger.info(f"Using provider: {provider_config.get('type')}")
+            logger.info(f"Using model: {provider_config.get('model', 'default')}")
             logger.info(f"Available prompts: {len(prompts)}")
         
         result = await workflow.ainvoke(initial_state)

@@ -36,8 +36,11 @@ class AIProvider(ABC):
         # Import providers dynamically to avoid circular imports
         if provider_type == 'openai':
             from .openai_provider import OpenAIProvider
-            logger.info("Creating OpenAI provider")
-            return OpenAIProvider(config.get('api_key'))
+            logger.info(f"Creating OpenAI provider with model {config.get('model', 'gpt-3.5-turbo')}")
+            return OpenAIProvider(
+                config.get('api_key'), 
+                config.get('model', "gpt-3.5-turbo")
+            )
         elif provider_type == 'ollama':
             from .ollama_provider import OllamaProvider
             logger.info(f"Creating Ollama provider with model {config.get('model')}")
