@@ -47,31 +47,41 @@ pip install -e ".[dev]"
 
 ## ⚙️ Initial Configuration
 
-After installation, run the interactive setup wizard:
+Core4AI can be configured either through the CLI setup wizard or programmatically via the Python API.
+
+### CLI Setup (Recommended for First-Time Setup)
 
 ```bash
 # Run the setup wizard
 core4ai setup
 ```
 
-
 The wizard will guide you through:
+1. **MLflow Configuration**: Enter the URI of your MLflow server (default: http://localhost:8080)
+2. **Existing Prompts Import**: Import existing prompts from MLflow if needed
+3. **AI Provider Selection**: Choose between OpenAI or Ollama and configure the selected provider
 
-1. **MLflow Configuration**: 
-   - Enter the URI of your MLflow server (default: http://localhost:8080)
-   - Core4AI will use MLflow to store and version your prompts
+### Python API Setup
 
-2. **Existing Prompts Import**:
-   - If you already have prompts in MLflow, you can import them into Core4AI
-   - You can provide prompt names directly or via a file
+```python
+from core4ai import Core4AI
 
-3. **AI Provider Selection**:
-   - Choose between OpenAI or Ollama
-   - For OpenAI: Set your API key as an environment variable:
-     ```bash
-     export OPENAI_API_KEY="your-api-key-here"
-     ```
-   - For Ollama: Specify the server URI and model to use
+# Create a Core4AI instance
+ai = Core4AI()
+
+# Set MLflow URI
+ai.set_mlflow_uri("http://localhost:8080")
+
+# Configure OpenAI
+api_key = os.environ.get("OPENAI_API_KEY")  # Get from environment
+ai.configure_openai(api_key=api_key, model="gpt-3.5-turbo")
+
+# Or configure Ollama
+# ai.configure_ollama(uri="http://localhost:11434", model="llama3.2:latest")
+
+# Save the configuration
+ai.save_config()
+```
 
 ## 📝 Prompt Management
 
@@ -121,7 +131,7 @@ Please ensure the tone is {{ tone }} and suitable for {{ audience }}.
 
 ### Creating Prompt Templates
 
-You can create a new prompt template using the CLI:
+#### CLI Approach
 
 ```bash
 # Create a new prompt template in the current directory
@@ -131,6 +141,20 @@ core4ai register --create email
 core4ai register --create blog --dir ./my_prompts
 ```
 
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Create a new prompt template in the current directory
+result = ai.create_prompt_template("email")
+
+# Create a prompt template in a specific directory
+result = ai.create_prompt_template("blog", output_dir="./my_prompts")
+```
+
 This will:
 1. Create a template file with the proper structure
 2. Open it in your default editor for customization
@@ -138,7 +162,7 @@ This will:
 
 ### Registering Prompts
 
-Core4AI supports multiple ways to register prompts:
+#### CLI Approach
 
 ```bash
 # Register a single prompt directly
@@ -157,13 +181,54 @@ core4ai register --samples
 core4ai register --dir ./my_prompts --only-new
 ```
 
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Register a single prompt directly
+ai.register_prompt(
+    name="email_prompt",
+    template="Write a {{ formality }} email...",
+    tags={"type": "email", "task": "writing"}
+)
+
+# Register from a markdown file
+ai.register_from_markdown("./my_prompts/email_prompt.md")
+
+# Register built-in sample prompts
+ai.register_samples()
+
+# Register from a JSON file
+ai.register_from_file("./my_prompts.json")
+```
+
 ### Managing Prompt Types
 
 Core4AI automatically tracks prompt types based on the prompt names:
 
+#### CLI Approach
+
 ```bash
 # List all registered prompt types
 core4ai list-types
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# List all registered prompt types
+prompt_types = ai.list_prompt_types()
+print(prompt_types)
+
+# Add a new prompt type
+ai.add_prompt_type("custom_type")
 ```
 
 The type is extracted from the prompt name:
@@ -171,6 +236,8 @@ The type is extracted from the prompt name:
 - For `cover_letter_prompt` → type is `cover_letter`
 
 ### Listing Available Prompts
+
+#### CLI Approach
 
 ```bash
 # List all prompts
@@ -180,12 +247,30 @@ core4ai list
 core4ai list --details
 
 # Get details for a specific prompt
-core4ai list --name email_prompt
+core4ai list --name email_prompt@production
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# List all prompts
+prompts = ai.list_prompts()
+print(prompts)
+
+# Get the configuration
+config = ai.get_current_config()
+print(config)
 ```
 
 ## 🛠️ Using Core4AI
 
 ### Basic Chat Interactions
+
+#### CLI Approach
 
 ```bash
 # Simple query - Core4AI will match to the best prompt template
@@ -198,13 +283,45 @@ core4ai chat --simple "Write an essay about climate change"
 core4ai chat --verbose "Write an email to my boss about a vacation request"
 ```
 
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Simple query
+response = ai.chat("Write about the future of AI")
+print(response["response"])
+
+# With verbose output
+response = ai.chat("Write an email to my boss about a vacation request", verbose=True)
+print(response["prompt_match"])  # Show matched prompt details
+print(response["enhanced_query"])  # Show enhanced query
+print(response["response"])  # Show final response
+```
+
 ### Sample Prompts
 
 Core4AI comes with several pre-registered prompt templates:
 
+#### CLI Approach
+
 ```bash
 # Register sample prompts
 core4ai register --samples
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Register sample prompts
+result = ai.register_samples()
+print(f"Registered {result.get('registered', 0)} prompts")
 ```
 
 This will register the following prompt types:
@@ -230,16 +347,28 @@ This will register the following prompt types:
 
 Each prompt is designed for specific use cases and includes variables that can be automatically extracted from user queries. You can view the details of any prompt with:
 
+#### CLI Approach
+
 ```bash
 # View details of a specific prompt
-core4ai list --name email_prompt@production --details
+core4ai list --name essay_prompt@production --details
+```
+
+#### Python API Approach
+
+```python
+from core4ai.prompt_manager.registry import get_prompt_details
+
+# Get details of a specific prompt
+details = get_prompt_details("essay_prompt@production")
+print(details)
 ```
 
 ## 🔄 Provider Configuration
 
 ### OpenAI
 
-To use OpenAI, set your API key:
+#### CLI Approach
 
 ```bash
 # Set environment variable (recommended)
@@ -247,37 +376,71 @@ export OPENAI_API_KEY="your-api-key-here"
 
 # Or configure during setup
 core4ai setup
+# Choose OpenAI and follow the prompts
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+import os
+
+ai = Core4AI()
+
+# Using environment variable (recommended)
+ai.configure_openai(model="gpt-3.5-turbo")
+
+# Or with explicit API key (less secure)
+api_key = "your-api-key-here"
+ai.configure_openai(api_key=api_key, model="gpt-4")
+
+# Save configuration (API key won't be saved to disk)
+ai.save_config()
 ```
 
 Available models include:
 - `gpt-3.5-turbo` (default)
 - `gpt-4`
 - `gpt-4-turbo`
+- `gpt-4o`
 
 ### Ollama
 
-To use Ollama:
+#### CLI Approach
 
-1. [Install Ollama](https://ollama.ai/download) on your system
-2. Start the Ollama server:
-   ```bash
-   ollama serve
-   ```
-3. Configure Core4AI:
-   ```bash
-   core4ai setup
-   ```
+```bash
+# Install and start Ollama
+ollama serve
+
+# Configure Core4AI
+core4ai setup
+# Choose Ollama and follow the prompts
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Configure to use Ollama
+ai.configure_ollama(uri="http://localhost:11434", model="llama2")
+
+# Save configuration
+ai.save_config()
+```
 
 ## 📋 Command Reference
 
-| Command | Description | Examples |
-|---------|-------------|----------|
-| `core4ai setup` | Run the setup wizard | `core4ai setup` |
-| `core4ai register` | Register prompts | `core4ai register --samples`, `core4ai register --create email` |
-| `core4ai list` | List available prompts | `core4ai list --details` |
-| `core4ai list-types` | List prompt types | `core4ai list-types` |
-| `core4ai chat` | Chat with enhanced prompts | `core4ai chat "Write about AI"` |
-| `core4ai version` | Show version info | `core4ai version` |
+| Command | Description | CLI Example | Python API Example |
+|---------|-------------|-------------|-------------------|
+| Setup | Configure Core4AI | `core4ai setup` | `ai = Core4AI()`<br>`ai.set_mlflow_uri("http://localhost:8080")`<br>`ai.configure_openai()` |
+| Register | Register prompts | `core4ai register --samples` | `ai.register_samples()` |
+| List | List available prompts | `core4ai list --details` | `ai.list_prompts()` |
+| List Types | List prompt types | `core4ai list-types` | `ai.list_prompt_types()` |
+| Chat | Chat with enhanced prompts | `core4ai chat "Write about AI"` | `response = ai.chat("Write about AI")`<br>`print(response["response"])` |
+| Version | Show version info | `core4ai version` | `from core4ai import __version__`<br>`print(__version__)` |
 
 ## 📊 How Core4AI Works
 
@@ -338,6 +501,14 @@ If you encounter problems connecting to MLflow:
 3. Configure Core4AI to use your MLflow server:
    ```bash
    core4ai setup
+   ```
+   
+   Or with Python:
+   ```python
+   from core4ai import Core4AI
+   ai = Core4AI()
+   ai.set_mlflow_uri("http://localhost:8080")
+   ai.save_config()
    ```
 
 ## 📜 License
