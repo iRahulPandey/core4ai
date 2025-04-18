@@ -8,11 +8,13 @@ This applies to both CLI commands and direct MLflow operations.
 """
 import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
 
 from .config.config_manager import Config
 from .engine.processor import process_query
+from .config.config import CONFIG_DIR, CONFIG_FILE
 
 
 class Core4AI:
@@ -36,9 +38,61 @@ class Core4AI:
         Args:
             config: Configuration dictionary (if None, loads from file/env)
         """
+        # Load existing config if not provided
         self.config = Config(load_existing=config is None)
+        
         if config:
             self.config._config = config
+        else:
+            # Check if config file exists
+            if not CONFIG_FILE.exists():
+                self._show_welcome_message()
+            elif not self._check_config_complete():
+                self._show_incomplete_config_message()
+    
+    def _check_config_complete(self) -> bool:
+        """
+        Check if the existing configuration has all required elements.
+        
+        Returns:
+            True if configuration is complete, False otherwise
+        """
+        config_data = self.config.get_config()
+        
+        # Check for essential configuration items
+        if not config_data.get('mlflow_uri'):
+            return False
+            
+        provider = config_data.get('provider', {})
+        if not provider.get('type'):
+            return False
+            
+        return True
+    
+    def _show_welcome_message(self) -> None:
+        """Display welcome message and setup instructions when no config exists."""
+        print("\n🌟 Welcome to Core4AI! 🌟")
+        print("No configuration file found at:", CONFIG_FILE)
+        print("\nYou can configure Core4AI in two ways:")
+        print("\n1️⃣ Using the CLI (recommended for first-time setup):")
+        print("   $ core4ai setup")
+        print("\n2️⃣ Using the Python API (current method):")
+        print("   ai = Core4AI()")
+        print("   ai.set_mlflow_uri('http://localhost:8080')")
+        print("   ai.configure_openai(api_key='your-api-key')")  # or ai.configure_ollama()
+        print("   ai.save_config()")
+        print("\nConfiguration will be saved to:", CONFIG_FILE)
+        print("\nℹ️  MLflow must be running to use Core4AI.")
+        print("   Common MLflow URIs: http://localhost:5000, http://localhost:8080")
+    
+    def _show_incomplete_config_message(self) -> None:
+        """Display message when configuration exists but is incomplete."""
+        print("\n⚠️  Core4AI configuration is incomplete.")
+        print("Configuration file exists at:", CONFIG_FILE)
+        print("\nPlease ensure the following are configured:")
+        print("1. MLflow URI: ai.set_mlflow_uri('http://localhost:8080')")
+        print("2. AI Provider: ai.configure_openai() or ai.configure_ollama()")
+        print("\nDon't forget to save your configuration with ai.save_config()")
     
     def set_mlflow_uri(self, uri: str) -> 'Core4AI':
         """
@@ -51,6 +105,7 @@ class Core4AI:
             Self for method chaining
         """
         self.config.set_mlflow_uri(uri)
+        print(f"✅ MLflow URI set to: {uri}")
         return self
     
     def configure_openai(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo") -> 'Core4AI':
@@ -60,11 +115,33 @@ class Core4AI:
         Args:
             api_key: OpenAI API key (if None, will use environment variable)
             model: Model to use (default: gpt-3.5-turbo)
-            
+                
         Returns:
             Self for method chaining
         """
-        self.config.use_openai(api_key, model)
+        # Store model and provider type in config
+        self.config._config['provider'] = {
+            'type': 'openai',
+            'model': model
+        }
+        
+        # Store API key in memory only, NOT in the config that will be saved
+        self._openai_api_key = api_key
+        
+        # Provide feedback on configuration
+        if api_key:
+            if api_key.startswith('sk-') and len(api_key) >= 30:
+                print(f"✅ OpenAI configured with provided API key and model: {model}")
+                print("ℹ️ API key will be stored in memory only, not saved to config file")
+            else:
+                print("⚠️ OpenAI configured with invalid API key format. API calls may fail.")
+        else:
+            env_key = os.environ.get('OPENAI_API_KEY')
+            if env_key:
+                print(f"✅ OpenAI configured to use environment API key and model: {model}")
+            else:
+                print("⚠️ No API key provided or found in environment. API calls will fail.")
+        
         return self
     
     def configure_ollama(self, uri: str = "http://localhost:11434", model: str = "llama2") -> 'Core4AI':
@@ -79,17 +156,72 @@ class Core4AI:
             Self for method chaining
         """
         self.config.use_ollama(uri, model)
+        print(f"✅ Ollama configured with URI: {uri} and model: {model}")
         return self
     
     def save_config(self) -> 'Core4AI':
         """
-        Save the current configuration.
+        Save the current configuration, excluding sensitive information.
         
         Returns:
             Self for method chaining
         """
-        self.config.save()
+        # Create a copy of the config to avoid modifying the original
+        safe_config = dict(self.config._config)
+        
+        # Ensure we don't save API keys to disk
+        if 'provider' in safe_config and safe_config['provider'].get('type') == 'openai':
+            if 'api_key' in safe_config['provider']:
+                del safe_config['provider']['api_key']
+        
+        # Save the sanitized config
+        from .config.config import save_config as save_config_func
+        save_config_func(safe_config)
+        print(f"✅ Configuration saved securely (API keys excluded)")
         return self
+    
+    def get_current_config(self) -> Dict[str, Any]:
+        """
+        Get a human-readable version of the current configuration.
+        
+        Returns:
+            Dictionary with configuration information
+        """
+        config = self.config.get_config()
+        provider = config.get('provider', {})
+        
+        readable_config = {
+            "mlflow_uri": config.get('mlflow_uri', 'Not configured'),
+            "provider_type": provider.get('type', 'Not configured'),
+            "model": provider.get('model', 'default')
+        }
+        
+        # Hide full API key but show if it exists
+        if provider.get('type') == 'openai':
+            api_key = provider.get('api_key')
+            env_key = os.environ.get('OPENAI_API_KEY')
+            
+            if api_key:
+                # Show only the first and last few characters
+                if len(api_key) > 8:
+                    masked_key = f"{api_key[:4]}...{api_key[-4:]}"
+                else:
+                    masked_key = "[invalid key format]"
+                readable_config["api_key"] = f"Provided ({masked_key})"
+            elif env_key:
+                if len(env_key) > 8:
+                    masked_key = f"{env_key[:4]}...{env_key[-4:]}"
+                else:
+                    masked_key = "[invalid key format]"
+                readable_config["api_key"] = f"From environment ({masked_key})"
+            else:
+                readable_config["api_key"] = "Not configured"
+        
+        print("Current Core4AI Configuration:")
+        for key, value in readable_config.items():
+            print(f"  {key}: {value}")
+        
+        return readable_config
     
     def register_samples(self) -> Dict[str, Any]:
         """
@@ -201,29 +333,101 @@ class Core4AI:
         print("Please export your OpenAI API key as OPENAI_API_KEY.")
         print("Example: export OPENAI_API_KEY='your-key-here'")
     
+    def _show_invalid_key_warning(self) -> None:
+        """Display a warning message about invalid OpenAI API key."""
+        print("⚠️  Invalid OpenAI API key provided.")
+        print("OpenAI API keys should start with 'sk-' and be at least 30 characters long.")
+        print("Please provide a valid API key or check your environment variable.")
+    
     def verify_openai_key(self) -> bool:
         """
         Verify that an OpenAI API key is properly configured.
         
         Returns:
-            True if the key is available (either in config or environment)
+            True if the key is available and valid (either in config or environment)
         """
         provider_config = self.config.get_config().get('provider', {})
         
         if provider_config.get('type') == 'openai':
-            # Check config first
-            if provider_config.get('api_key'):
-                return True
-            
-            # Then check environment
-            if os.environ.get('OPENAI_API_KEY'):
+            provider_config = self._prepare_provider_config()
+            # Check if we have a valid key format
+            if self._has_valid_openai_key(provider_config):
                 return True
                 
             # Show warning message
-            self._show_missing_key_warning()
+            api_key = provider_config.get('api_key')
+            if api_key:
+                self._show_invalid_key_warning()
+            else:
+                self._show_missing_key_warning()
+                
             return False
         
         return True  # Not using OpenAI
+    
+    def _prepare_provider_config(self) -> Dict[str, Any]:
+        """
+        Prepare the provider configuration with necessary keys from environment if needed.
+        Only falls back to environment if no API key was explicitly set.
+        
+        Returns:
+            Updated provider configuration dictionary
+        """
+        provider_config = dict(self.config.get_config().get('provider', {}))
+        
+        # For OpenAI, ensure we try to use the API key from environment ONLY if not in config
+        if provider_config.get('type') == 'openai' and not provider_config.get('api_key'):
+            api_key = os.environ.get('OPENAI_API_KEY')
+            if api_key:
+                provider_config['api_key'] = api_key
+                
+        return provider_config
+    
+    def _has_valid_openai_key(self, provider_config: Dict[str, Any]) -> bool:
+        """
+        Check if a valid OpenAI API key exists in the provided configuration.
+        A valid key should begin with 'sk-' and have sufficient length.
+        
+        Args:
+            provider_config: Provider configuration dictionary
+            
+        Returns:
+            True if a valid key exists, False otherwise
+        """
+        api_key = provider_config.get('api_key')
+        
+        # Basic validation that it's a potential OpenAI key
+        if api_key and isinstance(api_key, str) and api_key.startswith('sk-') and len(api_key) >= 30:
+            return True
+            
+        return False
+    
+    def _create_missing_key_response(self, query: str, key_exists: bool = False) -> Dict[str, Any]:
+        """
+        Create a response object for missing or invalid OpenAI API key.
+        
+        Args:
+            query: The original query
+            key_exists: Whether a key exists but is invalid (vs. missing entirely)
+            
+        Returns:
+            Response dictionary with error information
+        """
+        if key_exists:
+            # Show invalid key warning
+            self._show_invalid_key_warning()
+            error_msg = "Invalid OpenAI API key provided. API keys should start with 'sk-' and be at least 30 characters long."
+        else:
+            # Show missing key warning
+            self._show_missing_key_warning()
+            error_msg = "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
+        
+        return {
+            "error": "OpenAI API key issue",
+            "original_query": query,
+            "enhanced": False,
+            "response": f"Error: {error_msg}"
+        }
     
     def chat(self, query: str, verbose: bool = False) -> Dict[str, Any]:
         """
@@ -239,73 +443,94 @@ class Core4AI:
         Returns:
             Dictionary with response and processing details
         """
-        # Get provider config
-        provider_config = self._prepare_provider_config()
+        # Check if configuration is complete
+        if not self._check_config_complete():
+            return {
+                "error": "Incomplete configuration",
+                "original_query": query,
+                "enhanced": False,
+                "response": "Error: Core4AI is not fully configured. Please set MLflow URI and configure an AI provider."
+            }
+        
+        # Get in-memory provider config
+        in_memory_provider = dict(self.config.get_config().get('provider', {}))
+        provider_type = in_memory_provider.get('type', 'unknown')
+        provider_model = in_memory_provider.get('model', 'default')
+        
+        # Add security-sensitive information to provider config (not saved to disk)
+        if provider_type == 'openai':
+            # First try in-memory key
+            if hasattr(self, '_openai_api_key') and self._openai_api_key:
+                in_memory_provider['api_key'] = self._openai_api_key
+            # Then try environment variable
+            elif os.environ.get('OPENAI_API_KEY'):
+                in_memory_provider['api_key'] = os.environ.get('OPENAI_API_KEY')
+                print("ℹ️ Using OpenAI API key from environment variable")
+        
+        # Show which provider is being used
+        print(f"🔄 Processing query using {provider_type.upper()} provider with model: {provider_model}")
         
         # Check for OpenAI key if using OpenAI
-        if provider_config.get('type') == 'openai' and not self._has_valid_openai_key(provider_config):
-            return self._create_missing_key_response(query)
+        if provider_type == 'openai':
+            api_key = in_memory_provider.get('api_key')
+            
+            # Check if we have a key but it's not valid
+            if api_key and not self._has_valid_openai_key(in_memory_provider):
+                return self._create_missing_key_response(query, key_exists=True)
+            
+            # Check if we have no key at all
+            if not api_key:
+                return self._create_missing_key_response(query, key_exists=False)
+        
+        # For Ollama, verify server connectivity
+        if provider_type == 'ollama':
+            from .providers.utilities import verify_ollama_running
+            ollama_uri = in_memory_provider.get('uri', 'http://localhost:11434')
+            if not verify_ollama_running(ollama_uri):
+                return {
+                    "error": "Ollama server not running",
+                    "original_query": query,
+                    "enhanced": False,
+                    "response": f"Error: Could not connect to Ollama server at {ollama_uri}. Make sure Ollama is installed and running."
+                }
+            
+            # Optionally, check if the specified model exists in Ollama
+            if verbose:
+                try:
+                    from .providers.utilities import get_ollama_models
+                    available_models = get_ollama_models(ollama_uri)
+                    model_name = in_memory_provider.get('model')
+                    if model_name not in available_models:
+                        print(f"⚠️ Warning: Model '{model_name}' not found in Ollama. Available models: {', '.join(available_models)}")
+                        print("   Ollama will attempt to pull the model or may use a default model.")
+                except Exception as e:
+                    print(f"ℹ️ Could not verify Ollama model: {str(e)}")
         
         # Execute the query with robust error handling
         try:
-            return self._execute_async_query(query, provider_config, verbose)
+            # Pass the in-memory configuration to ensure consistency
+            result = self._execute_async_query(query, in_memory_provider, verbose)
+            
+            # Add provider information to the response
+            result["provider"] = {
+                "type": provider_type,
+                "model": provider_model
+            }
+            
+            return result
         except Exception as e:
-            # Provide a clean, user-friendly error message
-            return {
+            # Create error response with provider information
+            error_response = {
                 "error": f"Error processing query: {str(e)}",
                 "original_query": query,
                 "enhanced": False,
-                "response": f"Error: {str(e)}"
+                "response": f"Error: {str(e)}",
+                "provider": {
+                    "type": provider_type,
+                    "model": provider_model
+                }
             }
-    
-    def _prepare_provider_config(self) -> Dict[str, Any]:
-        """
-        Prepare the provider configuration with necessary keys from environment if needed.
-        
-        Returns:
-            Updated provider configuration dictionary
-        """
-        provider_config = dict(self.config.get_config().get('provider', {}))
-        
-        # For OpenAI, ensure we have the API key from environment if not in config
-        if provider_config.get('type') == 'openai' and not provider_config.get('api_key'):
-            api_key = os.environ.get('OPENAI_API_KEY')
-            if api_key:
-                provider_config['api_key'] = api_key
-                
-        return provider_config
-    
-    def _has_valid_openai_key(self, provider_config: Dict[str, Any]) -> bool:
-        """
-        Check if a valid OpenAI API key exists in the provided configuration.
-        
-        Args:
-            provider_config: Provider configuration dictionary
-            
-        Returns:
-            True if a valid key exists, False otherwise
-        """
-        return bool(provider_config.get('api_key'))
-    
-    def _create_missing_key_response(self, query: str) -> Dict[str, Any]:
-        """
-        Create a response object for missing OpenAI API key.
-        
-        Args:
-            query: The original query
-            
-        Returns:
-            Response dictionary with error information
-        """
-        # Show warning message
-        self._show_missing_key_warning()
-        
-        return {
-            "error": "OpenAI API key not found",
-            "original_query": query,
-            "enhanced": False,
-            "response": "Error: OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
-        }
+            return error_response
     
     def _execute_async_query(self, query: str, provider_config: Dict[str, Any], verbose: bool) -> Dict[str, Any]:
         """
@@ -313,7 +538,7 @@ class Core4AI:
         
         Args:
             query: The user query
-            provider_config: Provider configuration
+            provider_config: Provider configuration (will be used directly)
             verbose: Whether to show verbose output
             
         Returns:
@@ -341,6 +566,7 @@ class Core4AI:
             if in_notebook:
                 # We're in a notebook, use the current event loop
                 loop = asyncio.get_event_loop()
+                # Pass provider_config directly to process_query
                 return loop.run_until_complete(process_query(query, provider_config, verbose))
             else:
                 # Standard case - create new event loop
@@ -348,7 +574,7 @@ class Core4AI:
                 asyncio.set_event_loop(new_loop)
                 
                 try:
-                    # Use the newly created loop
+                    # Pass provider_config directly
                     return new_loop.run_until_complete(process_query(query, provider_config, verbose))
                 finally:
                     # Properly close the loop

@@ -51,6 +51,7 @@ def setup_wizard():
     
     # Initialize config
     config = load_config()
+    previous_provider = config.get('provider', {}).get('type')
     
     # MLflow URI
     mlflow_uri = click.prompt(
@@ -145,9 +146,25 @@ def setup_wizard():
         default=config.get('provider', {}).get('type', 'OpenAI').capitalize()
     )
     
-    provider_config = {'type': provider_choice.lower()}
+    current_provider_type = provider_choice.lower()
+    
+    # Check if provider is changing and handle default models
+    provider_changed = previous_provider and previous_provider != current_provider_type
     
     if provider_choice.lower() == 'openai':
+        # Default OpenAI model
+        default_model = "gpt-3.5-turbo"
+        
+        # If switching from another provider, show a message
+        if provider_changed:
+            click.echo(f"\n✅ Switching to OpenAI provider")
+        
+        # Initialize provider config
+        provider_config = {
+            'type': 'openai',
+            'model': default_model  # Will be updated after user selection
+        }
+        
         # Check for OpenAI API key
         api_key = os.environ.get('OPENAI_API_KEY')
         if not api_key:
@@ -165,24 +182,44 @@ def setup_wizard():
         else:
             click.echo("✅ Found OpenAI API key in environment!")
         
-        # Let user choose model if they want
-        model_options = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo']
-        if click.confirm("\nWould you like to specify an OpenAI model?", default=False):
-            model = click.prompt(
-                "Choose a model",
-                type=click.Choice(model_options, case_sensitive=False),
-                default=config.get('provider', {}).get('model', 'gpt-3.5-turbo')
-            )
-            provider_config['model'] = model
+        # Always ask for model choice
+        model_options = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o']
+        
+        # If changing providers, suggest the default, otherwise use previous config
+        if provider_changed:
+            suggested_model = default_model
         else:
-            provider_config['model'] = config.get('provider', {}).get('model', 'gpt-3.5-turbo')
+            current_model = config.get('provider', {}).get('model', default_model)
+            suggested_model = current_model if current_model in model_options else default_model
+        
+        model = click.prompt(
+            "Choose an OpenAI model",
+            type=click.Choice(model_options, case_sensitive=False),
+            default=suggested_model
+        )
+        provider_config['model'] = model
     
     elif provider_choice.lower() == 'ollama':
-        # Ollama configuration
+        # Default Ollama settings
+        default_model = "llama3.2:latest"
+        default_uri = "http://localhost:11434"
+        
+        # If switching from another provider, automatically set defaults
+        if provider_changed:
+            click.echo(f"\n✅ Switching to Ollama provider with default URI and model")
+        
+        # Ollama configuration - always ask for URI
         ollama_uri = click.prompt(
             "\nEnter your Ollama server URI",
-            default=config.get('provider', {}).get('uri', 'http://localhost:11434')
+            default=config.get('provider', {}).get('uri', default_uri)
         )
+        
+        # Initialize provider config with default model and user-specified URI
+        provider_config = {
+            'type': 'ollama',
+            'uri': ollama_uri,
+            'model': default_model  # Will be updated if user selects a different model
+        }
         
         # Check if Ollama is running
         if not verify_ollama_running(ollama_uri):
@@ -220,22 +257,31 @@ def setup_wizard():
             click.echo(f"\nAvailable Ollama models: {', '.join(available_models)}")
             
             if available_models and len(available_models) > 0:
-                default_model = config.get('provider', {}).get('model', available_models[0])
+                # If changing providers, suggest the default, otherwise use previous config
+                if provider_changed:
+                    suggested_model = default_model if default_model in available_models else available_models[0]
+                else:
+                    current_model = config.get('provider', {}).get('model')
+                    suggested_model = current_model if current_model in available_models else available_models[0]
+                
                 ollama_model = click.prompt(
                     "Choose an Ollama model",
                     type=click.Choice(available_models, case_sensitive=True),
-                    default=default_model if default_model in available_models else available_models[0]
+                    default=suggested_model
                 )
+                provider_config['model'] = ollama_model
             else:
                 ollama_model = click.prompt(
                     "Enter the Ollama model to use",
-                    default=config.get('provider', {}).get('model', 'llama2')
+                    default=config.get('provider', {}).get('model', default_model)
                 )
+                provider_config['model'] = ollama_model
         else:
             ollama_model = click.prompt(
                 "Enter the Ollama model to use",
-                default=config.get('provider', {}).get('model', 'llama2')
+                default=config.get('provider', {}).get('model', default_model)
             )
+            provider_config['model'] = ollama_model
             
             # Ask if they want to pull the model
             if click.confirm(f"Would you like to pull the '{ollama_model}' model now?"):
@@ -248,9 +294,6 @@ def setup_wizard():
                     if not click.confirm("Continue anyway?"):
                         click.echo("Setup aborted.")
                         return
-        
-        provider_config['uri'] = ollama_uri
-        provider_config['model'] = ollama_model
     
     config['provider'] = provider_config
     

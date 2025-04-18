@@ -28,6 +28,7 @@ class QueryState(TypedDict, total=False):
     parameters: Dict[str, Any]  # Extracted parameters for template
     original_parameters: Dict[str, Any]  # Original parameters before filling defaults
     response: Optional[str]  # The final response from the AI provider
+    provider_config: Dict[str, Any]  # Provider configuration to use consistently throughout workflow
 
 # Define workflow nodes
 async def match_prompt(state: QueryState) -> QueryState:
@@ -79,10 +80,10 @@ async def match_prompt(state: QueryState) -> QueryState:
     
     # Try to use the provider's LLM for matching
     try:
-        from ..config.config import get_provider_config
         from ..providers import AIProvider
         
-        provider_config = get_provider_config()
+        # IMPORTANT: Use the provider_config from the state for consistency
+        provider_config = state.get('provider_config', {})
         provider = AIProvider.create(provider_config)
         
         matching_prompt = f"""
@@ -352,10 +353,10 @@ async def validate_query(state: QueryState) -> QueryState:
     
     # LLM-based validation if available
     try:
-        from ..config.config import get_provider_config
         from ..providers import AIProvider
         
-        provider_config = get_provider_config()
+        # IMPORTANT: Use the provider_config from the state for consistency
+        provider_config = state.get('provider_config', {})
         provider = AIProvider.create(provider_config)
         
         validation_prompt = f"""
@@ -414,10 +415,10 @@ async def adjust_query(state: QueryState) -> QueryState:
     
     # Try LLM-based adjustment 
     try:
-        from ..config.config import get_provider_config
         from ..providers import AIProvider
         
-        provider_config = get_provider_config()
+        # IMPORTANT: Use the provider_config from the state for consistency
+        provider_config = state.get('provider_config', {})
         provider = AIProvider.create(provider_config)
         
         adjustment_prompt = f"""
@@ -482,10 +483,10 @@ async def generate_response(state: QueryState) -> QueryState:
     
     # Generate response using the provider
     try:
-        from ..config.config import get_provider_config
         from ..providers import AIProvider
         
-        provider_config = get_provider_config()
+        # IMPORTANT: Use the provider_config from the state for consistency
+        provider_config = state.get('provider_config', {})
         provider = AIProvider.create(provider_config)
         
         logger.info(f"Sending query to provider: {final_query[:50]}...")

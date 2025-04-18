@@ -38,10 +38,12 @@ class OllamaProvider(AIProvider):
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Ollama error: {error_text}")
-                        return f"Error from Ollama: {error_text}"
+                        # Raise exception instead of returning formatted error
+                        raise ValueError(f"Ollama API error: {error_text}")
                     
                     data = await response.json()
                     return data.get('response', '')
         except Exception as e:
             logger.error(f"Error generating response with Ollama: {e}")
-            return f"Error generating response: {str(e)}"
+            # Re-raise the exception instead of returning a string
+            raise

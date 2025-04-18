@@ -8,13 +8,14 @@ logger = logging.getLogger("core4ai.providers.openai")
 class OpenAIProvider(AIProvider):
     """OpenAI provider implementation."""
     
-    def __init__(self, api_key: str):
-        """Initialize the OpenAI provider with API key."""
+    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo"):
+        """Initialize the OpenAI provider with API key and model."""
         self.api_key = api_key
+        self.model_name = model
         if not self.api_key:
             logger.warning("No OpenAI API key provided. Responses may fail.")
         
-        self.model = ChatOpenAI(api_key=api_key, temperature=0.7)
+        self.model = ChatOpenAI(api_key=api_key, model=model, temperature=0.7)
         logger.info("OpenAI provider initialized")
     
     async def generate_response(self, prompt):
