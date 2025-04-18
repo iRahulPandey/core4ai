@@ -5,3 +5,4 @@ recursive-include src *.py
 recursive-include src/core4ai/sample_prompts *.md
 # Tests are excluded from the package distribution
 prune tests
+prune examples
