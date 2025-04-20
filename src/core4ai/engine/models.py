@@ -10,7 +10,6 @@ class PromptMatch(BaseModel):
     
     @field_validator('confidence')
     @classmethod
-    @classmethod
     def normalize_confidence(cls, v):
         """Normalize confidence to 0-100 scale."""
         # If value is a decimal between 0-1 (exclusive), convert to percentage
