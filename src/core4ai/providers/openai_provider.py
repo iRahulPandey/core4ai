@@ -2,7 +2,7 @@
 OpenAI provider for Core4AI.
 """
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from langchain_openai import ChatOpenAI
 from .base import AIProvider
 
@@ -11,7 +11,7 @@ logger = logging.getLogger("core4ai.providers.openai")
 class OpenAIProvider(AIProvider):
     """OpenAI provider implementation."""
     
-    def __init__(self, api_key=None, model=None, **kwargs):
+    def __init__(self, api_key=None, model="gpt-3.5-turbo", **kwargs):
         """Initialize the OpenAI provider with API key and model."""
         self.api_key = api_key
         self.model_name = model if model else "gpt-3.5-turbo"
@@ -35,7 +35,11 @@ class OpenAIProvider(AIProvider):
         
         logger.info(f"OpenAI provider initialized with model {self.model_name}")
     
-    # src/core4ai/providers/openai_provider.py
+    @property
+    def langchain_model(self):
+        """Get the underlying LangChain model."""
+        return self.model
+    
     async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
         """Generate a response using OpenAI."""
         try:
@@ -57,5 +61,4 @@ class OpenAIProvider(AIProvider):
             return response.content
         except Exception as e:
             logger.error(f"Error generating response with OpenAI: {e}")
-            # Return error message instead of raising
             return f"Error generating response: {str(e)}"
