@@ -2,48 +2,63 @@
 Ollama provider for Core4AI.
 """
 import logging
-import aiohttp
+from typing import Optional, Dict, Any
+from langchain_ollama import ChatOllama
 from .base import AIProvider
 
 logger = logging.getLogger("core4ai.providers.ollama")
 
 class OllamaProvider(AIProvider):
-    """Ollama provider implementation."""
+    """Ollama provider implementation using LangChain."""
     
-    def __init__(self, uri, model):
+    def __init__(self, uri=None, model=None, **kwargs):
         """Initialize the Ollama provider with URI and model."""
         # Handle None URI case to prevent attribute errors
         if uri is None:
-            logger.error("Ollama URI is None. Using default http://localhost:11434")
+            logger.warning("Ollama URI is None. Using default http://localhost:11434")
             self.uri = "http://localhost:11434"
         else:
             self.uri = uri.rstrip('/')
             
-        self.model = model
-        logger.info(f"Ollama provider initialized with model {model} at {self.uri}")
-    
-    async def generate_response(self, prompt):
-        """Generate a response using Ollama."""
-        url = f"{self.uri}/api/generate"
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False
+        self.model_name = model if model else "llama2"
+        
+        # Build parameters dict with only non-None values
+        model_params = {
+            "base_url": self.uri,
+            "model": self.model_name
         }
         
+        # Only add optional parameters if they're not None
+        for param in ['temperature', 'max_tokens', 'timeout', 'max_retries']:
+            if param in kwargs and kwargs[param] is not None:
+                model_params[param] = kwargs[param]
+        
+        # Use langchain-ollama's dedicated ChatOllama class
+        self.model = ChatOllama(**model_params)
+        
+        logger.info(f"Ollama provider initialized with model {self.model_name} at {self.uri}")
+    
+    # src/core4ai/providers/ollama_provider.py
+    async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
+        """Generate a response using Ollama."""
         try:
             logger.debug(f"Sending prompt to Ollama: {prompt[:50]}...")
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Ollama error: {error_text}")
-                        # Raise exception instead of returning formatted error
-                        raise ValueError(f"Ollama API error: {error_text}")
-                    
-                    data = await response.json()
-                    return data.get('response', '')
+            
+            # Build messages array using the tuple format
+            messages = []
+            
+            # Add system message if provided
+            if system_message:
+                messages.append(("system", system_message))
+                
+            # Add user message
+            messages.append(("human", prompt))
+            
+            # Invoke the model asynchronously
+            response = await self.model.ainvoke(messages)
+            
+            return response.content
         except Exception as e:
             logger.error(f"Error generating response with Ollama: {e}")
-            # Re-raise the exception instead of returning a string
-            raise
+            # Return error message instead of raising
+            return f"Error generating response: {str(e)}"

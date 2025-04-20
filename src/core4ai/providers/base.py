@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Dict, Type, Any
+from typing import Dict, Type, Any, Optional
 
 logger = logging.getLogger("core4ai.providers.base")
 
@@ -19,8 +19,8 @@ class AIProvider(ABC):
         logger.debug(f"Registered provider: {provider_type}")
     
     @abstractmethod
-    async def generate_response(self, prompt):
-        """Generate a response for the given prompt."""
+    async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
+        """Generate a response for the given prompt with optional system message."""
         pass
     
     @classmethod
@@ -33,18 +33,29 @@ class AIProvider(ABC):
             
         provider_type = provider_type.lower()
         
+        # Extract parameters (only pass what's in the config)
+        kwargs = {}
+        for param in ['temperature', 'max_tokens', 'timeout', 'max_retries', 'organization', 'base_url']:
+            if param in config:
+                kwargs[param] = config[param]
+        
         # Import providers dynamically to avoid circular imports
         if provider_type == 'openai':
             from .openai_provider import OpenAIProvider
             logger.info(f"Creating OpenAI provider with model {config.get('model', 'gpt-3.5-turbo')}")
             return OpenAIProvider(
-                config.get('api_key'), 
-                config.get('model', "gpt-3.5-turbo")
+                api_key=config.get('api_key'),
+                model=config.get('model', "gpt-3.5-turbo"),
+                **kwargs
             )
         elif provider_type == 'ollama':
             from .ollama_provider import OllamaProvider
             logger.info(f"Creating Ollama provider with model {config.get('model')}")
-            return OllamaProvider(config.get('uri'), config.get('model'))
+            return OllamaProvider(
+                uri=config.get('uri'),
+                model=config.get('model'),
+                **kwargs
+            )
         else:
             if provider_type not in cls._providers:
                 raise ValueError(f"Unknown provider type: {provider_type}. Available types: {', '.join(cls._providers.keys())}")
