@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "core4ai"
-version = "1.1.5"
+version = "1.1.6"
 description = "Contextual Optimization and Refinement Engine for AI"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -33,6 +33,7 @@ dependencies = [
     "langchain-ollama==0.3.2",
     "langchain-core>=0.3.0",
     "mlflow>=2.21.0,<3.0.0",
+    "pydantic>=2.0.0",
     "python-dotenv",
     "pyyaml",
     "requests",

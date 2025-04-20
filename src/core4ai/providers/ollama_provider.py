@@ -2,14 +2,14 @@
 Ollama provider for Core4AI.
 """
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from langchain_ollama import ChatOllama
 from .base import AIProvider
 
 logger = logging.getLogger("core4ai.providers.ollama")
 
 class OllamaProvider(AIProvider):
-    """Ollama provider implementation using LangChain."""
+    """Ollama provider implementation."""
     
     def __init__(self, uri=None, model=None, **kwargs):
         """Initialize the Ollama provider with URI and model."""
@@ -20,7 +20,7 @@ class OllamaProvider(AIProvider):
         else:
             self.uri = uri.rstrip('/')
             
-        self.model_name = model if model else "llama2"
+        self.model_name = model if model else "llama3.2:latest"
         
         # Build parameters dict with only non-None values
         model_params = {
@@ -38,7 +38,11 @@ class OllamaProvider(AIProvider):
         
         logger.info(f"Ollama provider initialized with model {self.model_name} at {self.uri}")
     
-    # src/core4ai/providers/ollama_provider.py
+    @property
+    def langchain_model(self):
+        """Get the underlying LangChain model."""
+        return self.model
+    
     async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
         """Generate a response using Ollama."""
         try:
@@ -60,5 +64,4 @@ class OllamaProvider(AIProvider):
             return response.content
         except Exception as e:
             logger.error(f"Error generating response with Ollama: {e}")
-            # Return error message instead of raising
             return f"Error generating response: {str(e)}"

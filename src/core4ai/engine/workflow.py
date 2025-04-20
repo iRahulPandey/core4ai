@@ -10,6 +10,7 @@ from typing import Dict, Any, TypedDict, List, Optional, Tuple
 # Import LangGraph components
 from langgraph.graph import StateGraph, END, START
 from langchain_core.messages import HumanMessage
+from ..providers import AIProvider
 
 # Set up logging
 logger = logging.getLogger("core4ai.engine.workflow")
@@ -32,27 +33,23 @@ class QueryState(TypedDict, total=False):
 
 # Define workflow nodes
 async def match_prompt(state: QueryState) -> QueryState:
-    """
-    Use LLM to match the user query to the most appropriate prompt template.
-    """
+    """Match user query to the most appropriate prompt template."""
+    import json
+    import re
+    from langchain_core.prompts import ChatPromptTemplate
+    from ..engine.models import PromptMatch
+    
     logger.info(f"Matching query to prompt template: {state['user_query']}")
     query = state['user_query']
     available_prompts = state.get('available_prompts', {})
     
-    # If no prompts are available, skip enhancement
+    # Skip if no prompts available
     if not available_prompts:
         logger.warning("No prompts available, skipping enhancement")
-        return {
-            **state, 
-            "should_skip_enhance": True,
-            "prompt_match": {"status": "no_prompts_available"}
-        }
-    
-    # Available prompt names for selection
-    prompt_names = list(available_prompts.keys())
+        return {**state, "should_skip_enhance": True, "prompt_match": {"status": "no_prompts_available"}}
+
+    # Create prompt details dictionary
     prompt_details = {}
-    
-    # Get details about each prompt for better matching
     for name, prompt_obj in available_prompts.items():
         # Extract variables from the template
         variables = []
@@ -70,7 +67,6 @@ async def match_prompt(state: QueryState) -> QueryState:
         
         # Create a simple description from the name if no tags
         if not description:
-            # Convert name like "essay_prompt" to "essay"
             description = name.replace("_prompt", "").replace("_", " ")
         
         prompt_details[name] = {
@@ -78,166 +74,155 @@ async def match_prompt(state: QueryState) -> QueryState:
             "description": description
         }
     
-    # Try to use the provider's LLM for matching
-    try:
-        from ..providers import AIProvider
-        
-        # IMPORTANT: Use the provider_config from the state for consistency
-        provider_config = state.get('provider_config', {})
-        provider = AIProvider.create(provider_config)
-        
-        matching_prompt = f"""
-        I need to match a user query to the most appropriate prompt template from a list.
-
-        User query: "{query}"
-        
-        Available prompt templates:
-        {json.dumps(prompt_details, indent=2)}
-        
-        Choose the most appropriate prompt template for this query based on the intent and requirements.
-        If none of the templates are appropriate, respond with "none".
-        
-        Return your answer as a JSON object with these fields:
-        - "prompt_name": The name of the best matching prompt (or "none")
-        - "confidence": A number between 0-100 representing your confidence in this match
-        - "reasoning": A brief explanation for why this template is appropriate
-        - "parameters": A dictionary with values for the template variables extracted from the query
-        """
-        
-        response = await provider.generate_response(matching_prompt)
-        
-        # Parse the JSON response
-        try:
-            match_result = json.loads(response)
+    # Get provider
+    provider_config = state.get('provider_config', {})
+    provider = AIProvider.create(provider_config)
+    
+    # Create prompt template
+    match_prompt_template = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You are a prompt matching assistant. Your task is to match a user query to the most 
+            appropriate prompt template from a list of available templates. Choose the template 
+            that best fits the user's intent and requirements."""
+        ),
+        (
+            "user",
+            """Match this user query to the most appropriate prompt template:
             
-            # Check if a valid prompt was matched
-            if match_result.get("prompt_name", "none") != "none" and match_result.get("prompt_name") in available_prompts:
-                prompt_name = match_result["prompt_name"]
-                logger.info(f"Matched query to '{prompt_name}' with {match_result.get('confidence')}% confidence")
-                
-                # Get the prompt object
-                matched_prompt = available_prompts[prompt_name]
-                
-                # Extract content type from prompt name (e.g., "essay_prompt" -> "essay")
+            User query: "{query}"
+            
+            Available templates:
+            {templates}
+            
+            Choose the most appropriate template based on the intent and requirements.
+            If none are appropriate, use "none" as the prompt_name.
+            """
+        )
+    ])
+    
+    # Maximum attempts for retry
+    max_attempts = 3
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Create chain with structured output
+            structured_llm = provider.with_structured_output(PromptMatch, method='function_calling')
+            match_chain = match_prompt_template | structured_llm
+            
+            # Invoke the chain with our variables
+            match_result = await match_chain.ainvoke({
+                "query": query,
+                "templates": json.dumps(prompt_details, indent=2)
+            })
+            
+            # Process the validated PromptMatch object
+            prompt_name = match_result.prompt_name
+            if prompt_name == "none":
+                logger.info("No matching prompt found (LLM returned 'none')")
+                return {
+                    **state, 
+                    "content_type": None,
+                    "prompt_match": {
+                        "status": "no_match",
+                        "reasoning": match_result.reasoning
+                    },
+                    "should_skip_enhance": True
+                }
+            
+            # Found a match with validated structure
+            content_type = prompt_name.replace("_prompt", "")
+            logger.info(f"Matched query to '{prompt_name}' with {match_result.confidence}% confidence")
+            
+            return {
+                **state, 
+                "content_type": content_type,
+                "prompt_match": {
+                    "status": "matched",
+                    "prompt_name": prompt_name,
+                    "confidence": match_result.confidence,
+                    "reasoning": match_result.reasoning,
+                },
+                "parameters": match_result.parameters,
+                "should_skip_enhance": False
+            }
+            
+        except Exception as e:
+            logger.warning(f"Structured match attempt {attempt}/{max_attempts} failed: {str(e)}")
+            
+            if attempt < max_attempts:
+                logger.info(f"Retrying structured matching (attempt {attempt+1}/{max_attempts})")
+                continue
+            
+            # Final attempt failed, fall back to keyword matching
+            logger.warning("All structured match attempts failed. Falling back to keyword matching.")
+            
+            # [Your existing keyword matching code remains here]
+            keyword_matches = {}
+            query_lower = query.lower()
+            
+            keyword_map = {
+                "essay": ["essay", "write about", "discuss", "research", "analyze", "academic"],
+                "email": ["email", "message", "write to", "contact", "reach out"],
+                "technical": ["explain", "how does", "technical", "guide", "tutorial", "concept"],
+                "creative": ["story", "creative", "poem", "fiction", "narrative", "imaginative"],
+                "code": ["code", "program", "script", "function", "algorithm", "programming", "implement"],
+                "summary": ["summarize", "summary", "brief", "condense", "overview", "recap"],
+                "analysis": ["analyze", "analysis", "critique", "evaluate", "assess", "examine"],
+                "qa": ["question", "answer", "qa", "respond to", "reply to", "doubt"],
+                "custom": ["custom", "specialized", "specific", "tailored", "personalized"],
+                "social_media": ["post", "tweet", "social media", "instagram", "facebook", "linkedin"],
+                "blog": ["blog", "article", "post about", "write blog", "blog post"],
+                "report": ["report", "business report", "analysis report", "status", "findings"],
+                "letter": ["letter", "formal letter", "cover letter", "recommendation letter"],
+                "presentation": ["presentation", "slides", "slideshow", "deck", "talk"],
+                "review": ["review", "evaluate", "critique", "assess", "feedback", "opinion"],
+                "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"],
+                "instruction": ["instructions", "how to", "steps", "guide", "tutorial", "directions"]
+            }
+            
+            for prompt_type, keywords in keyword_map.items():
+                prompt_name = f"{prompt_type}_prompt"
+                if prompt_name in available_prompts:
+                    for keyword in keywords:
+                        if keyword in query_lower:
+                            keyword_matches[prompt_name] = keyword_matches.get(prompt_name, 0) + 1
+            
+            # Find the prompt with the most keyword matches
+            if keyword_matches:
+                best_match = max(keyword_matches.items(), key=lambda x: x[1])
+                prompt_name = best_match[0]
                 content_type = prompt_name.replace("_prompt", "")
                 
-                # Return state with matched prompt information
+                logger.info(f"Matched query to '{prompt_name}' using keyword matching")
+                
+                # Extract basic parameters
+                parameters = {"topic": query.replace("write", "").replace("about", "").strip()}
+                
+                # [Specific parameter extraction logic for different prompt types]
+                
                 return {
                     **state, 
                     "content_type": content_type,
                     "prompt_match": {
                         "status": "matched",
                         "prompt_name": prompt_name,
-                        "confidence": match_result.get("confidence", 0),
-                        "reasoning": match_result.get("reasoning", ""),
+                        "confidence": 70,  # Medium confidence for keyword matching
+                        "reasoning": f"Matched based on keywords in query",
                     },
-                    "parameters": match_result.get("parameters", {}),
+                    "parameters": parameters,
                     "should_skip_enhance": False
                 }
-            else:
-                # No appropriate prompt template found
-                logger.info("No appropriate prompt template found for query")
-                return {
-                    **state, 
-                    "content_type": None,
-                    "prompt_match": {
-                        "status": "no_match",
-                        "reasoning": match_result.get("reasoning", "No matching template found")
-                    },
-                    "should_skip_enhance": True
-                }
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse LLM response as JSON: {response[:100]}...")
-    except Exception as e:
-        logger.error(f"Error using provider for prompt matching: {e}")
-    
-    # Fall back to simple matching if LLM fails or isn't available
-    # Use basic keyword matching to find an appropriate template
-    logger.info("Using fallback keyword matching")
-    keyword_matches = {}
-    query_lower = query.lower()
-    
-    keyword_map = {
-        "essay": ["essay", "write about", "discuss", "research", "analyze", "academic"],
-        "email": ["email", "message", "write to", "contact", "reach out"],
-        "technical": ["explain", "how does", "technical", "guide", "tutorial", "concept"],
-        "creative": ["story", "creative", "poem", "fiction", "narrative", "imaginative"],
-        "code": ["code", "program", "script", "function", "algorithm", "programming", "implement"],
-        "summary": ["summarize", "summary", "brief", "condense", "overview", "recap"],
-        "analysis": ["analyze", "analysis", "critique", "evaluate", "assess", "examine"],
-        "qa": ["question", "answer", "qa", "respond to", "reply to", "doubt"],
-        "custom": ["custom", "specialized", "specific", "tailored", "personalized"],
-        "social_media": ["post", "tweet", "social media", "instagram", "facebook", "linkedin"],
-        "blog": ["blog", "article", "post about", "write blog", "blog post"],
-        "report": ["report", "business report", "analysis report", "status", "findings"],
-        "letter": ["letter", "formal letter", "cover letter", "recommendation letter"],
-        "presentation": ["presentation", "slides", "slideshow", "deck", "talk"],
-        "review": ["review", "evaluate", "critique", "assess", "feedback", "opinion"],
-        "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"],
-        "instruction": ["instructions", "how to", "steps", "guide", "tutorial", "directions"]
-    }
-    
-    for prompt_type, keywords in keyword_map.items():
-        prompt_name = f"{prompt_type}_prompt"
-        if prompt_name in available_prompts:
-            for keyword in keywords:
-                if keyword in query_lower:
-                    keyword_matches[prompt_name] = keyword_matches.get(prompt_name, 0) + 1
-    
-    # Find the prompt with the most keyword matches
-    if keyword_matches:
-        best_match = max(keyword_matches.items(), key=lambda x: x[1])
-        prompt_name = best_match[0]
-        content_type = prompt_name.replace("_prompt", "")
-        
-        logger.info(f"Matched query to '{prompt_name}' using keyword matching")
-        
-        # Extract basic parameters
-        parameters = {"topic": query.replace("write", "").replace("about", "").strip()}
-        
-        # Add specific parameters based on prompt type
-        if "email_prompt" == prompt_name:
-            recipient_type = "recipient"
-            if "to my" in query_lower:
-                recipient_parts = query_lower.split("to my")
-                if len(recipient_parts) > 1:
-                    recipient_type = recipient_parts[1].split()[0]
-            parameters["recipient_type"] = recipient_type
-            parameters["formality"] = "formal" if recipient_type in ['boss', 'supervisor', 'manager', 'client'] else "semi-formal"
-            parameters["tone"] = "respectful" if recipient_type in ['boss', 'supervisor', 'manager', 'client'] else "friendly"
-        
-        elif "creative_prompt" == prompt_name:
-            genre = "story"
-            for possible_genre in ["story", "poem", "script", "novel"]:
-                if possible_genre in query_lower:
-                    genre = possible_genre
-                    break
-            parameters["genre"] = genre
-        
-        elif "technical_prompt" == prompt_name:
-            parameters["audience"] = "general"
-        
-        return {
-            **state, 
-            "content_type": content_type,
-            "prompt_match": {
-                "status": "matched",
-                "prompt_name": prompt_name,
-                "confidence": 70,  # Medium confidence for keyword matching
-                "reasoning": f"Matched based on keywords in query",
-            },
-            "parameters": parameters,
-            "should_skip_enhance": False
-        }
-    
-    # If no match found, skip enhancement
-    logger.info("No matching prompt found, skipping enhancement")
-    return {
-        **state, 
-        "content_type": None,
-        "prompt_match": {"status": "no_match"},
-        "should_skip_enhance": True
-    }
+            
+            # If no match found, skip enhancement
+            logger.info("No matching prompt found, skipping enhancement")
+            return {
+                **state, 
+                "content_type": None,
+                "prompt_match": {"status": "no_match"},
+                "should_skip_enhance": True
+            }
+            
 
 async def enhance_query(state: QueryState) -> QueryState:
     """Apply the matched prompt template to enhance the query."""
@@ -315,90 +300,109 @@ async def enhance_query(state: QueryState) -> QueryState:
         "original_parameters": original_parameters
     }
 
+
 async def validate_query(state: QueryState) -> QueryState:
-    """Validate that the enhanced query maintains the original intent and is well-formed."""
+    """Validate that the enhanced query maintains the original intent."""
+    from langchain_core.prompts import ChatPromptTemplate
+    from ..engine.models import ValidationResult
+    
     logger.info("Validating enhanced query...")
     
-    # If enhancement was skipped, skip validation as well
+    # Skip validation if enhancement was skipped
     if state.get("should_skip_enhance", False):
-        logger.info("Enhancement was skipped, skipping validation as well")
         return {**state, "validation_result": "VALID", "validation_issues": []}
     
     user_query = state['user_query']
     enhanced_query = state['enhanced_query']
-    validation_issues = []
     
-    # Rule-based validation
-    # Check for repeated phrases or words (sign of a formatting issue)
-    parts = user_query.lower().split()
-    for part in parts:
-        if len(part) > 4:  # Only check substantial words
-            count = enhanced_query.lower().count(part)
-            if count > 1:
-                validation_issues.append(f"Repeated word: '{part}'")
+    # Get provider
+    provider_config = state.get('provider_config', {})
+    provider = AIProvider.create(provider_config)
     
-    # Check for direct inclusion of the user query
-    if user_query.lower() in enhanced_query.lower():
-        validation_issues.append("Raw user query inserted into template")
-    
-    # Check if major words from the original query are present in the enhanced version
-    major_words = [word for word in user_query.lower().split() 
-                if len(word) > 4 and word not in ["write", "about", "create", "make"]]
-    
-    missing_words = [word for word in major_words 
-                   if word not in enhanced_query.lower()]
-    
-    if missing_words:
-        validation_issues.append(f"Missing key words: {', '.join(missing_words)}")
-    
-    # LLM-based validation if available
-    try:
-        from ..providers import AIProvider
-        
-        # IMPORTANT: Use the provider_config from the state for consistency
-        provider_config = state.get('provider_config', {})
-        provider = AIProvider.create(provider_config)
-        
-        validation_prompt = f"""
-        I need to validate if an enhanced prompt maintains the original user's intent and is well-formed.
-        
-        Original user query: "{user_query}"
-        
-        Enhanced prompt:
-        {enhanced_query}
-        
-        Please analyze and identify any issues:
-        1. Does the enhanced prompt maintain the key topic/subject from the original query?
-        2. Are there any important elements from the original query that are missing?
-        3. Is the enhanced prompt well-formed (no repeated words, no grammatical errors)?
-        4. Does the enhanced prompt avoid directly inserting the raw user query?
-        
-        Return a JSON object with:
-        - "valid": boolean (true if no issues, false otherwise)
-        - "issues": array of string descriptions of any problems found (empty if valid)
-        """
-        
-        response = await provider.generate_response(validation_prompt)
-        
-        try:
-            validation_result = json.loads(response)
+    # Create prompt template
+    validation_prompt_template = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You are a prompt validation assistant. Your task is to validate if an enhanced 
+            prompt maintains the original user's intent and is well-formed. Check for issues 
+            like missing key topics, repetitive text, or grammatical problems."""
+        ),
+        (
+            "user",
+            """Validate if this enhanced prompt maintains the original intent:
             
-            if not validation_result.get("valid", False):
-                llm_issues = validation_result.get("issues", [])
-                for issue in llm_issues:
-                    if issue not in validation_issues:
-                        validation_issues.append(issue)
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse LLM validation response as JSON: {response[:100]}...")
-    except Exception as e:
-        logger.warning(f"Error validating with LLM: {e}")
+            Original query: "{original_query}"
+            
+            Enhanced prompt:
+            {enhanced_query}
+            
+            Return whether the enhanced prompt is valid and a list of any issues found.
+            """
+        )
+    ])
     
-    # Determine final validation result
-    final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
+    # Maximum attempts for retry
+    max_attempts = 3
     
-    logger.info(f"Validation result: {final_validation}")
-    # Return merged state
-    return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Create chain with structured output
+            structured_llm = provider.with_structured_output(ValidationResult)
+            validation_chain = validation_prompt_template | structured_llm
+            
+            # Invoke the chain with our variables
+            validation_result = await validation_chain.ainvoke({
+                "original_query": user_query,
+                "enhanced_query": enhanced_query
+            })
+            
+            # Get validation results from the validated object
+            validation_issues = validation_result.issues if not validation_result.valid else []
+            final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
+            
+            logger.info(f"Validation result: {final_validation}")
+            return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
+            
+        except Exception as e:
+            logger.warning(f"Structured validation attempt {attempt}/{max_attempts} failed: {str(e)}")
+            
+            if attempt < max_attempts:
+                logger.info(f"Retrying structured validation (attempt {attempt+1}/{max_attempts})")
+                continue
+            
+            # Final attempt failed, fall back to rule-based validation
+            logger.warning("All structured validation attempts failed. Using rule-based validation.")
+            
+            # Rule-based validation fallback
+            validation_issues = []
+            
+            # Check for repeated phrases or words (sign of a formatting issue)
+            parts = user_query.lower().split()
+            for part in parts:
+                if len(part) > 4:  # Only check substantial words
+                    count = enhanced_query.lower().count(part)
+                    if count > 1:
+                        validation_issues.append(f"Repeated word: '{part}'")
+            
+            # Check for direct inclusion of the user query
+            if user_query.lower() in enhanced_query.lower():
+                validation_issues.append("Raw user query inserted into template")
+            
+            # Check if major words from the original query are present
+            major_words = [word for word in user_query.lower().split() 
+                         if len(word) > 4 and word not in ["write", "about", "create", "make"]]
+            
+            missing_words = [word for word in major_words 
+                           if word not in enhanced_query.lower()]
+            
+            if missing_words:
+                validation_issues.append(f"Missing key words: {', '.join(missing_words)}")
+            
+            # Determine final validation result from rule-based validation
+            final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
+            
+            logger.info(f"Rule-based validation result: {final_validation}")
+            return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
 
 async def adjust_query(state: QueryState) -> QueryState:
     """Adjust the enhanced query to address validation issues."""

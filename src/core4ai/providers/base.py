@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import logging
 from typing import Dict, Type, Any, Optional
+from pydantic import BaseModel
 
 logger = logging.getLogger("core4ai.providers.base")
 
@@ -18,6 +19,16 @@ class AIProvider(ABC):
         AIProvider._providers[provider_type] = cls
         logger.debug(f"Registered provider: {provider_type}")
     
+    @property
+    @abstractmethod
+    def langchain_model(self):
+        """Get the underlying LangChain model."""
+        pass
+    
+    def with_structured_output(self, output_schema: Type[BaseModel], method="function_calling"):
+        """Get a version of the langchain model with structured output."""
+        return self.langchain_model.with_structured_output(output_schema, method=method)
+    
     @abstractmethod
     async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
         """Generate a response for the given prompt with optional system message."""
@@ -33,7 +44,7 @@ class AIProvider(ABC):
             
         provider_type = provider_type.lower()
         
-        # Extract parameters (only pass what's in the config)
+        # Extract common parameters
         kwargs = {}
         for param in ['temperature', 'max_tokens', 'timeout', 'max_retries', 'organization', 'base_url']:
             if param in config:
