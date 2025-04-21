@@ -78,109 +78,214 @@ async def match_prompt(state: QueryState) -> QueryState:
     provider_config = state.get('provider_config', {})
     provider = AIProvider.create(provider_config)
     
-    # Create prompt template with explicit JSON format instructions
-    match_prompt_template = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            """You are a prompt matching assistant. Your task is to match a user query to the most 
-            appropriate prompt template from a list of available templates. You must respond ONLY with valid JSON
-            matching the exact format specified."""
-        ),
-        (
-            "user",
-            """Match this user query to the most appropriate prompt template:
-            
-            User query: "{query}"
-            
-            Available templates:
-            {templates}
-            
-            Choose the most appropriate template based on the intent and requirements.
-            If none are appropriate, use "none" as the prompt_name.
-            
-            RESPOND ONLY WITH JSON in this exact format (no other text before or after):
-            
-            {{
-                "prompt_name": "template_name_here",
-                "confidence": 85,
-                "reasoning": "Brief explanation of why this template is appropriate",
-                "parameters": {{
-                    "param1": "value1",
-                    "param2": "value2"
-                }}
-            }}
-            
-            
-            Notes:
-            - prompt_name must be one of the template names from the list or "none"
-            - confidence must be a number between 0-100
-            - reasoning should be a brief explanation
-            - parameters should include values extracted from the query
-            - DO NOT include any explanations outside the JSON
-            """
-        )
-    ])
+    # Check if we're using Ollama and need to format differently
+    provider_type = provider_config.get('type', '').lower()
     
     # Maximum attempts for retry
     max_attempts = 3
+    last_error = None
+    raw_responses = []
     
     for attempt in range(1, max_attempts + 1):
         try:
-            # Get the raw response first to see what the model is returning
-            raw_match_chain = match_prompt_template | provider.langchain_model
-            raw_result = await raw_match_chain.ainvoke({
-                "query": query,
-                "templates": json.dumps(prompt_details, indent=2)
-            })
+            # Create system message with more guidance and examples
+            system_message = """You are a prompt matching assistant. Your task is to match a user query to the most 
+            appropriate prompt template from a list of available templates. Choose the template 
+            that best fits the user's intent and requirements."""
             
-            # Log the raw result
-            raw_content = raw_result.content
-            logger.info(f"Raw match result (attempt {attempt}/{max_attempts}): {raw_content}")
+            # Add format instructions based on provider type
+            if provider_type == 'ollama':
+                system_message += """
+                
+                IMPORTANT: You must respond with a valid JSON object in the exact format specified, 
+                with no additional text before or after. The response must be parseable as JSON.
+                """
             
-            # For Ollama, we need to handle the direct JSON parsing
-            if provider_config.get('type') == 'ollama':
-                try:
-                    # Try a simple direct parse first - Ollama sometimes returns clean JSON
-                    match_data = json.loads(raw_content)
+            # Add feedback from previous errors to help the LLM correct its response
+            if last_error and attempt > 1:
+                system_message += f"""
+                
+                PREVIOUS ATTEMPT FAILED: {last_error}
+                
+                Your previous response could not be parsed correctly. Common issues include:
+                - Missing or misspelled fields (prompt_name, confidence, reasoning, parameters)
+                - Invalid JSON syntax (missing quotes, commas, braces)
+                - Empty or null values for required fields
+                - Text outside the JSON object
+                
+                Please ensure your response follows the required format.
+                """
+                
+                if raw_responses:
+                    system_message += f"""
                     
-                    # Create PromptMatch object
-                    match_result = PromptMatch(
-                        prompt_name=match_data.get("prompt_name", "none"),
-                        confidence=float(match_data.get("confidence", 50)),
-                        reasoning=match_data.get("reasoning", ""),
-                        parameters=match_data.get("parameters", {})
-                    )
-                except json.JSONDecodeError:
-                    # If direct parsing fails, try to extract JSON from the text
-                    import re
+                    Your previous raw response was:
+                    {raw_responses[-1]}
                     
-                    # Simplest approach - find the first JSON-like structure
-                    # by looking for content between curly braces
-                    json_match = re.search(r'(\{[\s\S]*?\})', raw_content)
-                    if json_match:
-                        try:
-                            extracted_json = json_match.group(1)
-                            match_data = json.loads(extracted_json)
-                            
-                            # Create PromptMatch object
-                            match_result = PromptMatch(
-                                prompt_name=match_data.get("prompt_name", "none"),
-                                confidence=float(match_data.get("confidence", 50)),
-                                reasoning=match_data.get("reasoning", ""),
-                                parameters=match_data.get("parameters", {})
-                            )
-                        except Exception as e:
-                            raise ValueError(f"Failed to parse JSON from Ollama response: {e}")
-                    else:
-                        raise ValueError("Could not extract any JSON-like structure from Ollama response")
+                    Please fix the issues and provide a properly formatted response.
+                    """
+            
+            # Customize user prompt based on provider type
+            if provider_type == 'ollama':
+                user_prompt = """Match this user query to the most appropriate prompt template:
+                
+                User query: "{query}"
+                
+                Available templates:
+                {templates}
+                
+                RESPOND ONLY WITH JSON in this exact format (no other text before or after):
+                
+                {{
+                    "prompt_name": "template_name_here",
+                    "confidence": 85,
+                    "reasoning": "Brief explanation of why this template is appropriate",
+                    "parameters": {{
+                        "param1": "value1",
+                        "param2": "value2"
+                    }}
+                }}
+                
+                RULES:
+                - prompt_name MUST be exactly one of these values: {template_names} or "none"
+                - confidence MUST be a number between 0-100
+                - reasoning MUST be a string explaining your choice
+                - parameters MUST be an object with values extracted from the query
+                - Your entire response must be VALID JSON only
+                
+                EXAMPLES:
+                
+                VALID RESPONSE 1:
+                {{
+                    "prompt_name": "essay_prompt",
+                    "confidence": 95,
+                    "reasoning": "The query explicitly asks for an essay on a specific topic",
+                    "parameters": {{
+                        "topic": "artificial intelligence"
+                    }}
+                }}
+                
+                VALID RESPONSE 2:
+                {{
+                    "prompt_name": "none",
+                    "confidence": 0,
+                    "reasoning": "The query doesn't match any available template",
+                    "parameters": {{}}
+                }}
+                """
             else:
-                # For other providers, use structured output API
+                user_prompt = """Match this user query to the most appropriate prompt template:
+                
+                User query: "{query}"
+                
+                Available templates:
+                {templates}
+                
+                Choose the most appropriate template based on the intent and requirements.
+                If none are appropriate, use "none" as the prompt_name.
+                
+                For your reference, valid prompt names are: {template_names} or "none"
+                
+                Be sure to extract any relevant parameters from the query that would be needed
+                to fill the template variables.
+                """
+            
+            match_prompt_template = ChatPromptTemplate.from_messages([
+                ("system", system_message),
+                ("user", user_prompt)
+            ])
+            
+            # Capture the raw response before structured parsing for debugging
+            raw_response = None
+            
+            # Create a custom chain that captures the raw output before parsing
+            if provider_type == 'ollama':
+                from langchain_core.runnables import RunnablePassthrough
+                
+                async def capture_raw_response(messages):
+                    nonlocal raw_response
+                    temp_model = provider.langchain_model
+                    response = await temp_model.ainvoke(messages)
+                    raw_response = response.content
+                    return messages
+                
+                capture_chain = RunnablePassthrough() | capture_raw_response
+                prompt_chain = match_prompt_template | capture_chain
+                
+                # Execute the chain to capture raw response
+                messages = await prompt_chain.ainvoke({
+                    "query": query,
+                    "templates": json.dumps(prompt_details, indent=2),
+                    "template_names": ", ".join([f'"{name}"' for name in available_prompts.keys()])
+                })
+                
+                # Store the raw response for debugging
+                if raw_response:
+                    raw_responses.append(raw_response)
+                    logger.debug(f"Raw LLM response (attempt {attempt}):\n{raw_response}")
+                
+                # For Ollama - custom handling if needed
+                if provider_type == 'ollama':
+                    # Try direct JSON parsing before using structured output
+                    try:
+                        # If we have a raw response, try to parse it directly
+                        if raw_response:
+                            # Clean up the response to handle potential text around JSON
+                            import re
+                            json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                            if json_match:
+                                json_str = json_match.group(1)
+                                # Try to parse the JSON
+                                json_data = json.loads(json_str)
+                                
+                                # Validate the parsed data has required fields
+                                if all(k in json_data for k in ["prompt_name", "confidence", "reasoning", "parameters"]):
+                                    # Create a PromptMatch object manually
+                                    match_result = PromptMatch(
+                                        prompt_name=json_data["prompt_name"],
+                                        confidence=json_data["confidence"],
+                                        reasoning=json_data["reasoning"],
+                                        parameters=json_data["parameters"]
+                                    )
+                                    logger.info(f"Successfully parsed Ollama response directly as JSON")
+                                else:
+                                    # Missing required fields, continue to structured output
+                                    logger.debug(f"JSON missing required fields, trying structured output")
+                                    raise ValueError("JSON missing required fields")
+                            else:
+                                # No JSON found, continue to structured output
+                                logger.debug(f"No JSON object found in response, trying structured output")
+                                raise ValueError("No JSON object found in response")
+                        else:
+                            # No raw response, continue to structured output
+                            raise ValueError("No raw response captured")
+                    except Exception as json_err:
+                        logger.debug(f"Direct JSON parsing failed: {json_err}, falling back to structured output")
+                        # Now use the structured output chain
+                        structured_llm = provider.with_structured_output(PromptMatch, method='function_calling')
+                        match_result = await structured_llm.ainvoke(messages)
+                else:
+                    # Now use the structured output chain
+                    structured_llm = provider.with_structured_output(PromptMatch, method='function_calling')
+                    match_result = await structured_llm.ainvoke(messages)
+            else:
+                # For non-Ollama providers like OpenAI, use standard approach
                 structured_llm = provider.with_structured_output(PromptMatch, method='function_calling')
                 match_chain = match_prompt_template | structured_llm
+                
+                # Invoke the chain with our variables
                 match_result = await match_chain.ainvoke({
                     "query": query,
-                    "templates": json.dumps(prompt_details, indent=2)
+                    "templates": json.dumps(prompt_details, indent=2),
+                    "template_names": ", ".join([f'"{name}"' for name in available_prompts.keys()])
                 })
+            
+            # Log the complete match result
+            logger.info(f"📊 LLM MATCH RESPONSE (attempt {attempt}/{max_attempts}):")
+            logger.info(f"  prompt_name: {match_result.prompt_name}")
+            logger.info(f"  confidence: {match_result.confidence}")
+            logger.info(f"  reasoning: {match_result.reasoning}")
+            logger.info(f"  parameters: {json.dumps(match_result.parameters, indent=2) if match_result.parameters else '{}'}")
             
             # Process the validated PromptMatch object
             prompt_name = match_result.prompt_name
@@ -196,9 +301,26 @@ async def match_prompt(state: QueryState) -> QueryState:
                     "should_skip_enhance": True
                 }
             
+            # Validate the prompt_name is in available_prompts
+            if prompt_name not in available_prompts:
+                logger.warning(f"LLM returned invalid prompt name: {prompt_name}")
+                
+                # Try a similar prompt name if possible
+                from difflib import get_close_matches
+                close_matches = get_close_matches(prompt_name, available_prompts.keys(), n=1)
+                if close_matches:
+                    closest_match = close_matches[0]
+                    logger.info(f"Using closest match: {closest_match}")
+                    prompt_name = closest_match
+                else:
+                    logger.warning(f"No close match found, retrying")
+                    raise ValueError(f"Invalid prompt name: {prompt_name}")
+            
             # Found a match with validated structure
             content_type = prompt_name.replace("_prompt", "")
-            logger.info(f"Matched query to '{prompt_name}' with {match_result.confidence}% confidence")
+            
+            # Add more detailed logging
+            logger.info(f"✅ Matched query to '{prompt_name}' with {match_result.confidence}% confidence (attempt {attempt}/{max_attempts})")
             
             return {
                 **state, 
@@ -214,81 +336,116 @@ async def match_prompt(state: QueryState) -> QueryState:
             }
             
         except Exception as e:
-            logger.warning(f"Structured match attempt {attempt}/{max_attempts} failed: {str(e)}")
+            last_error = str(e)
+            logger.error(f"❌ Structured match attempt {attempt}/{max_attempts} failed: {last_error}")
+            
+            # Try to extract any partial JSON to understand what went wrong
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.debug(f"Full error traceback:\n{error_trace}")
+            
+            # Log the raw response if available
+            if raw_response:
+                logger.error(f"Raw response that caused the error (attempt {attempt}):\n{raw_response}")
+            
+            # If there's a JSON string in the error or raw response, try to extract and log it
+            try:
+                import re
+                # First try to extract JSON from the raw response
+                json_data = None
+                if raw_response:
+                    try:
+                        # Try to parse the whole response as JSON
+                        json_data = json.loads(raw_response)
+                        logger.debug(f"Successfully parsed raw response as JSON:\n{json.dumps(json_data, indent=2)}")
+                    except json.JSONDecodeError:
+                        # If that fails, try to extract a JSON object using regex
+                        json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(1)
+                            try:
+                                json_data = json.loads(json_str)
+                                logger.debug(f"Extracted JSON from raw response:\n{json.dumps(json_data, indent=2)}")
+                            except:
+                                logger.debug(f"Found JSON-like string but couldn't parse it:\n{json_str}")
+                
+                # If no JSON found in raw response, try the error message
+                if not json_data:
+                    json_match = re.search(r'(\{.*\})', str(e) + error_trace, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        try:
+                            json_data = json.loads(json_str)
+                            logger.debug(f"Extracted JSON from error:\n{json.dumps(json_data, indent=2)}")
+                        except:
+                            logger.debug(f"Found JSON-like string in error but couldn't parse it:\n{json_str}")
+            except Exception as extract_err:
+                logger.debug(f"Could not extract JSON: {extract_err}")
             
             if attempt < max_attempts:
-                logger.info(f"Retrying structured matching (attempt {attempt+1}/{max_attempts})")
+                logger.info(f"⟳ Retrying with feedback (attempt {attempt+1}/{max_attempts})")
                 continue
-            
-            # Final attempt failed, fall back to keyword matching
-            logger.warning("All structured match attempts failed. Falling back to keyword matching.")
-            
-            # [Your existing keyword matching code remains here]
-            keyword_matches = {}
-            query_lower = query.lower()
-            
-            keyword_map = {
-                "essay": ["essay", "write about", "discuss", "research", "analyze", "academic"],
-                "email": ["email", "message", "write to", "contact", "reach out"],
-                "technical": ["explain", "how does", "technical", "guide", "tutorial", "concept"],
-                "creative": ["story", "creative", "poem", "fiction", "narrative", "imaginative"],
-                "code": ["code", "program", "script", "function", "algorithm", "programming", "implement"],
-                "summary": ["summarize", "summary", "brief", "condense", "overview", "recap"],
-                "analysis": ["analyze", "analysis", "critique", "evaluate", "assess", "examine"],
-                "qa": ["question", "answer", "qa", "respond to", "reply to", "doubt"],
-                "custom": ["custom", "specialized", "specific", "tailored", "personalized"],
-                "social_media": ["post", "tweet", "social media", "instagram", "facebook", "linkedin"],
-                "blog": ["blog", "article", "post about", "write blog", "blog post"],
-                "report": ["report", "business report", "analysis report", "status", "findings"],
-                "letter": ["letter", "formal letter", "cover letter", "recommendation letter"],
-                "presentation": ["presentation", "slides", "slideshow", "deck", "talk"],
-                "review": ["review", "evaluate", "critique", "assess", "feedback", "opinion"],
-                "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"],
-                "instruction": ["instructions", "how to", "steps", "guide", "tutorial", "directions"]
-            }
-            
-            for prompt_type, keywords in keyword_map.items():
-                prompt_name = f"{prompt_type}_prompt"
-                if prompt_name in available_prompts:
-                    for keyword in keywords:
-                        if keyword in query_lower:
-                            keyword_matches[prompt_name] = keyword_matches.get(prompt_name, 0) + 1
-            
-            # Find the prompt with the most keyword matches
-            if keyword_matches:
-                best_match = max(keyword_matches.items(), key=lambda x: x[1])
-                prompt_name = best_match[0]
-                content_type = prompt_name.replace("_prompt", "")
-                
-                logger.info(f"Matched query to '{prompt_name}' using keyword matching")
-                
-                # Extract basic parameters
-                parameters = {"topic": query.replace("write", "").replace("about", "").strip()}
-                
-                # [Specific parameter extraction logic for different prompt types]
-                
-                return {
-                    **state, 
-                    "content_type": content_type,
-                    "prompt_match": {
-                        "status": "matched",
-                        "prompt_name": prompt_name,
-                        "confidence": 70,  # Medium confidence for keyword matching
-                        "reasoning": f"Matched based on keywords in query",
-                    },
-                    "parameters": parameters,
-                    "should_skip_enhance": False
-                }
-            
-            # If no match found, skip enhancement
-            logger.info("No matching prompt found, skipping enhancement")
-            return {
-                **state, 
-                "content_type": None,
-                "prompt_match": {"status": "no_match"},
-                "should_skip_enhance": True
-            }
-            
+    
+    # All attempts failed, fall back to keyword matching
+    logger.warning("All structured match attempts failed. Falling back to keyword matching.")
+    
+    # Simple fallback to keyword matching
+    keyword_matches = {}
+    query_lower = query.lower()
+    
+    keyword_map = {
+        "essay": ["essay", "write about", "discuss", "research", "analyze", "academic"],
+        "email": ["email", "message", "write to", "contact", "reach out"],
+        "technical": ["explain", "how does", "technical", "guide", "tutorial", "concept"],
+        "creative": ["story", "creative", "poem", "fiction", "narrative", "imaginative"],
+        "code": ["code", "program", "script", "function", "algorithm", "programming", "implement"],
+        "summary": ["summarize", "summary", "brief", "condense", "overview", "recap"],
+        "analysis": ["analyze", "analysis", "critique", "evaluate", "assess", "examine"],
+        "qa": ["question", "answer", "qa", "respond to", "reply to", "doubt"],
+        "social_media": ["post", "tweet", "social media", "instagram", "facebook", "linkedin"],
+        "report": ["report", "business report", "analysis report", "status", "findings"],
+        "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"]
+    }
+    
+    for prompt_type, keywords in keyword_map.items():
+        prompt_name = f"{prompt_type}_prompt"
+        if prompt_name in available_prompts:
+            for keyword in keywords:
+                if keyword in query_lower:
+                    keyword_matches[prompt_name] = keyword_matches.get(prompt_name, 0) + 1
+    
+    # Find the prompt with the most keyword matches
+    if keyword_matches:
+        best_match = max(keyword_matches.items(), key=lambda x: x[1])
+        prompt_name = best_match[0]
+        content_type = prompt_name.replace("_prompt", "")
+        
+        logger.info(f"✅ Matched query to '{prompt_name}' using fallback keyword matching")
+        
+        # Extract basic parameters
+        parameters = {"topic": query.replace("write", "").replace("about", "").strip()}
+        
+        return {
+            **state, 
+            "content_type": content_type,
+            "prompt_match": {
+                "status": "matched",
+                "prompt_name": prompt_name,
+                "confidence": 70,  # Medium confidence for keyword matching
+                "reasoning": f"Matched based on keywords in query",
+            },
+            "parameters": parameters,
+            "should_skip_enhance": False
+        }
+    
+    # If no match found, skip enhancement
+    logger.info("❌ No matching prompt found, skipping enhancement")
+    return {
+        **state, 
+        "content_type": None,
+        "prompt_match": {"status": "no_match"},
+        "should_skip_enhance": True
+    }
 
 async def enhance_query(state: QueryState) -> QueryState:
     """Apply the matched prompt template to enhance the query."""
@@ -366,16 +523,17 @@ async def enhance_query(state: QueryState) -> QueryState:
         "original_parameters": original_parameters
     }
 
-
 async def validate_query(state: QueryState) -> QueryState:
     """Validate that the enhanced query maintains the original intent."""
     from langchain_core.prompts import ChatPromptTemplate
     from ..engine.models import ValidationResult
+    import json
     
     logger.info("Validating enhanced query...")
     
     # Skip validation if enhancement was skipped
     if state.get("should_skip_enhance", False):
+        logger.info("⏩ Skipping validation as enhancement was skipped")
         return {**state, "validation_result": "VALID", "validation_issues": []}
     
     user_query = state['user_query']
@@ -385,153 +543,304 @@ async def validate_query(state: QueryState) -> QueryState:
     provider_config = state.get('provider_config', {})
     provider = AIProvider.create(provider_config)
     
-    # Create prompt template
-    validation_prompt_template = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            """You are a prompt validation assistant. Your task is to validate if an enhanced 
-            prompt maintains the original user's intent and is well-formed. Check for issues 
-            like missing key topics, repetitive text, or grammatical problems."""
-        ),
-        (
-            "user",
-            """Validate if this enhanced prompt maintains the original intent:
-            
-            Original query: "{original_query}"
-            
-            Enhanced prompt:
-            {enhanced_query}
-            
-            Return whether the enhanced prompt is valid and a list of any issues found.
-            Format your response as JSON with the following fields:
-            - valid: boolean (true if valid, false if issues found)
-            - issues: array of strings (empty if valid, otherwise list of issues)
-            """
-        )
-    ])
+    # Check if we're using Ollama and need to format differently
+    provider_type = provider_config.get('type', '').lower()
     
     # Maximum attempts for retry
     max_attempts = 3
+    last_error = None
+    raw_responses = []
     
     for attempt in range(1, max_attempts + 1):
         try:
-            # First get raw response
-            raw_validation_chain = validation_prompt_template | provider.langchain_model
-            raw_result = await raw_validation_chain.ainvoke({
-                "original_query": user_query,
-                "enhanced_query": enhanced_query
-            })
+            # Create system message with more guidance and examples
+            system_message = """You are a prompt validation assistant. Your task is to validate if an enhanced 
+            prompt maintains the original user's intent and is well-formed. Check for issues 
+            like missing key topics, repetitive text, or grammatical problems."""
             
-            # Log the raw response
-            raw_content = raw_result.content
-            logger.info(f"Raw validation result (attempt {attempt}/{max_attempts}): {raw_content}")
+            # Add format instructions based on provider type
+            if provider_type == 'ollama':
+                system_message += """
+                
+                IMPORTANT: You must respond with a valid JSON object in the exact format specified, 
+                with no additional text before or after. The response must be parseable as JSON.
+                """
             
-            # For Ollama, handle JSON extraction manually
-            if provider_config.get('type') == 'ollama':
-                try:
-                    # Try direct JSON parsing first
-                    validation_data = json.loads(raw_content)
+            # Add feedback from previous errors to help the LLM correct its response
+            if last_error and attempt > 1:
+                system_message += f"""
+                
+                PREVIOUS ATTEMPT FAILED: {last_error}
+                
+                Your previous response could not be parsed correctly. Common issues include:
+                - Missing or misspelled fields (valid, issues)
+                - Invalid JSON syntax (missing quotes, commas, braces)
+                - Empty or null values for required fields
+                - Text outside the JSON object
+                
+                Please ensure your response follows the required format.
+                """
+                
+                if raw_responses:
+                    system_message += f"""
                     
-                    # Create ValidationResult object
-                    validation_result = ValidationResult(
-                        valid=validation_data.get("valid", True),
-                        issues=validation_data.get("issues", [])
-                    )
-                except json.JSONDecodeError:
-                    # Try to extract JSON with regex
-                    import re
+                    Your previous raw response was:
+                    {raw_responses[-1]}
                     
-                    # Look for JSON-like structure
-                    json_match = re.search(r'(\{[\s\S]*?\})', raw_content)
-                    if json_match:
-                        try:
-                            extracted_json = json_match.group(1)
-                            validation_data = json.loads(extracted_json)
-                            
-                            # Create ValidationResult object
-                            validation_result = ValidationResult(
-                                valid=validation_data.get("valid", True),
-                                issues=validation_data.get("issues", [])
-                            )
-                        except Exception as e:
-                            raise ValueError(f"Failed to parse JSON from Ollama response: {e}")
-                    else:
-                        # If no JSON structure found, try to infer from the text
-                        is_valid = "valid" in raw_content.lower() and "true" in raw_content.lower()
-                        
-                        # Look for issues in text
-                        issues = []
-                        if "issues" in raw_content.lower():
-                            # Try to extract issues from text
-                            issues_match = re.search(r'issues.*?[\[\{](.*?)[\]\}]', raw_content, re.DOTALL | re.IGNORECASE)
-                            if issues_match:
-                                issues_text = issues_match.group(1)
-                                # Extract items from potential list
-                                issues = [item.strip(' "\'') for item in re.findall(r'"([^"]*)"', issues_text)]
-                                if not issues:
-                                    # Try a simpler split if no quotes found
-                                    issues = [item.strip() for item in issues_text.split(',') if item.strip()]
-                        
-                        validation_result = ValidationResult(
-                            valid=is_valid,
-                            issues=issues
-                        )
+                    Please fix the issues and provide a properly formatted response.
+                    """
+            
+            # Customize user prompt based on provider type
+            if provider_type == 'ollama':
+                user_prompt = """Validate if this enhanced prompt maintains the original intent:
+                
+                Original query: "{original_query}"
+                
+                Enhanced prompt:
+                {enhanced_query}
+                
+                RESPOND ONLY WITH JSON in this exact format (no other text before or after):
+                
+                {{
+                    "valid": true_or_false,
+                    "issues": [
+                        "Issue 1 description",
+                        "Issue 2 description"
+                    ]
+                }}
+                
+                RULES:
+                - valid MUST be a boolean (true or false)
+                - issues MUST be an array of strings (empty array if valid is true)
+                - If valid is true, issues should be an empty array []
+                - If valid is false, issues should contain at least one issue
+                - Your entire response must be VALID JSON only
+                
+                EXAMPLES:
+                
+                VALID RESPONSE 1 (no issues):
+                {{
+                    "valid": true,
+                    "issues": []
+                }}
+                
+                VALID RESPONSE 2 (with issues):
+                {{
+                    "valid": false,
+                    "issues": [
+                        "Missing key topic from original query",
+                        "Repetitive phrasing makes the prompt confusing"
+                    ]
+                }}
+                """
             else:
-                # For other providers, use structured output API
-                structured_llm = provider.with_structured_output(ValidationResult)
+                user_prompt = """Validate if this enhanced prompt maintains the original intent:
+                
+                Original query: "{original_query}"
+                
+                Enhanced prompt:
+                {enhanced_query}
+                
+                Return whether the enhanced prompt is valid and a list of any issues found.
+                Be specific about why the prompt is valid or invalid.
+                """
+            
+            validation_prompt_template = ChatPromptTemplate.from_messages([
+                ("system", system_message),
+                ("user", user_prompt)
+            ])
+            
+            # Capture the raw response before structured parsing for debugging
+            raw_response = None
+            
+            # Create a custom chain that captures the raw output before parsing
+            if provider_type == 'ollama':
+                from langchain_core.runnables import RunnablePassthrough
+                
+                async def capture_raw_response(messages):
+                    nonlocal raw_response
+                    temp_model = provider.langchain_model
+                    response = await temp_model.ainvoke(messages)
+                    raw_response = response.content
+                    return messages
+                
+                capture_chain = RunnablePassthrough() | capture_raw_response
+                prompt_chain = validation_prompt_template | capture_chain
+                
+                # Execute the chain to capture raw response
+                messages = await prompt_chain.ainvoke({
+                    "original_query": user_query,
+                    "enhanced_query": enhanced_query
+                })
+                
+                # Store the raw response for debugging
+                if raw_response:
+                    raw_responses.append(raw_response)
+                    logger.debug(f"Raw LLM response (attempt {attempt}):\n{raw_response}")
+                
+                # For Ollama - custom handling if needed
+                if provider_type == 'ollama':
+                    # Try direct JSON parsing before using structured output
+                    try:
+                        # If we have a raw response, try to parse it directly
+                        if raw_response:
+                            # Clean up the response to handle potential text around JSON
+                            import re
+                            json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                            if json_match:
+                                json_str = json_match.group(1)
+                                # Try to parse the JSON
+                                json_data = json.loads(json_str)
+                                
+                                # Validate the parsed data has required fields
+                                if all(k in json_data for k in ["valid", "issues"]):
+                                    # Create a ValidationResult object manually
+                                    validation_result = ValidationResult(
+                                        valid=json_data["valid"],
+                                        issues=json_data["issues"]
+                                    )
+                                    logger.info(f"Successfully parsed Ollama response directly as JSON")
+                                else:
+                                    # Missing required fields, continue to structured output
+                                    logger.debug(f"JSON missing required fields, trying structured output")
+                                    raise ValueError("JSON missing required fields")
+                            else:
+                                # No JSON found, continue to structured output
+                                logger.debug(f"No JSON object found in response, trying structured output")
+                                raise ValueError("No JSON object found in response")
+                        else:
+                            # No raw response, continue to structured output
+                            raise ValueError("No raw response captured")
+                    except Exception as json_err:
+                        logger.debug(f"Direct JSON parsing failed: {json_err}, falling back to structured output")
+                        # Now use the structured output chain
+                        structured_llm = provider.with_structured_output(ValidationResult, method='function_calling')
+                        validation_result = await structured_llm.ainvoke(messages)
+                else:
+                    # Now use the structured output chain
+                    structured_llm = provider.with_structured_output(ValidationResult, method='function_calling')
+                    validation_result = await structured_llm.ainvoke(messages)
+            else:
+                # For non-Ollama providers like OpenAI, use standard approach
+                structured_llm = provider.with_structured_output(ValidationResult, method="function_calling")
                 validation_chain = validation_prompt_template | structured_llm
+                
+                # Invoke the chain with our variables
                 validation_result = await validation_chain.ainvoke({
                     "original_query": user_query,
                     "enhanced_query": enhanced_query
                 })
             
-            # Process validation results
+            # Log the complete validation result
+            logger.info(f"📊 LLM VALIDATION RESPONSE (attempt {attempt}/{max_attempts}):")
+            logger.info(f"  valid: {validation_result.valid}")
+            logger.info(f"  issues: {json.dumps(validation_result.issues, indent=2) if validation_result.issues else '[]'}")
+            
+            # Get validation results from the validated object
             validation_issues = validation_result.issues if not validation_result.valid else []
             final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
             
-            logger.info(f"Validation result: {final_validation}")
+            # Improved logging with visual status
+            if validation_issues:
+                logger.info(f"❌ Validation result: {final_validation} with {len(validation_issues)} issues (attempt {attempt}/{max_attempts})")
+                for i, issue in enumerate(validation_issues):
+                    logger.info(f"  Issue {i+1}: {issue}")
+            else:
+                logger.info(f"✅ Validation result: VALID - Enhanced query maintains original intent (attempt {attempt}/{max_attempts})")
+            
             return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
             
         except Exception as e:
-            logger.warning(f"Structured validation attempt {attempt}/{max_attempts} failed: {str(e)}")
+            last_error = str(e)
+            logger.error(f"❌ Structured validation attempt {attempt}/{max_attempts} failed: {last_error}")
+            
+            # Try to extract any partial JSON to understand what went wrong
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.debug(f"Full error traceback:\n{error_trace}")
+            
+            # Log the raw response if available
+            if raw_response:
+                logger.error(f"Raw response that caused the error (attempt {attempt}):\n{raw_response}")
+            
+            # If there's a JSON string in the error or raw response, try to extract and log it
+            try:
+                import re
+                # First try to extract JSON from the raw response
+                json_data = None
+                if raw_response:
+                    try:
+                        # Try to parse the whole response as JSON
+                        json_data = json.loads(raw_response)
+                        logger.debug(f"Successfully parsed raw response as JSON:\n{json.dumps(json_data, indent=2)}")
+                    except json.JSONDecodeError:
+                        # If that fails, try to extract a JSON object using regex
+                        json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(1)
+                            try:
+                                json_data = json.loads(json_str)
+                                logger.debug(f"Extracted JSON from raw response:\n{json.dumps(json_data, indent=2)}")
+                            except:
+                                logger.debug(f"Found JSON-like string but couldn't parse it:\n{json_str}")
+                
+                # If no JSON found in raw response, try the error message
+                if not json_data:
+                    json_match = re.search(r'(\{.*\})', str(e) + error_trace, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        try:
+                            json_data = json.loads(json_str)
+                            logger.debug(f"Extracted JSON from error:\n{json.dumps(json_data, indent=2)}")
+                        except:
+                            logger.debug(f"Found JSON-like string in error but couldn't parse it:\n{json_str}")
+            except Exception as extract_err:
+                logger.debug(f"Could not extract JSON: {extract_err}")
             
             if attempt < max_attempts:
-                logger.info(f"Retrying structured validation (attempt {attempt+1}/{max_attempts})")
+                logger.info(f"⟳ Retrying with feedback (attempt {attempt+1}/{max_attempts})")
                 continue
-            
-            # Final attempt failed, fall back to rule-based validation
-            logger.warning("All structured validation attempts failed. Using rule-based validation.")
-            
-            # Rule-based validation fallback
-            validation_issues = []
-            
-            # Check for repeated phrases or words (sign of a formatting issue)
-            parts = user_query.lower().split()
-            for part in parts:
-                if len(part) > 4:  # Only check substantial words
-                    count = enhanced_query.lower().count(part)
-                    if count > 1:
-                        validation_issues.append(f"Repeated word: '{part}'")
-            
-            # Check for direct inclusion of the user query
-            if user_query.lower() in enhanced_query.lower():
-                validation_issues.append("Raw user query inserted into template")
-            
-            # Check if major words from the original query are present
-            major_words = [word for word in user_query.lower().split() 
-                         if len(word) > 4 and word not in ["write", "about", "create", "make"]]
-            
-            missing_words = [word for word in major_words 
-                           if word not in enhanced_query.lower()]
-            
-            if missing_words:
-                validation_issues.append(f"Missing key words: {', '.join(missing_words)}")
-            
-            # Determine final validation result from rule-based validation
-            final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
-            
-            logger.info(f"Rule-based validation result: {final_validation}")
-            return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
+    
+    # All attempts failed, fall back to rule-based validation
+    logger.warning("All structured validation attempts failed. Using rule-based validation.")
+    
+    # Rule-based validation fallback
+    validation_issues = []
+    
+    # Check for repeated phrases or words (sign of a formatting issue)
+    parts = user_query.lower().split()
+    for part in parts:
+        if len(part) > 4:  # Only check substantial words
+            count = enhanced_query.lower().count(part)
+            if count > 1:
+                validation_issues.append(f"Repeated word: '{part}'")
+    
+    # Check for direct inclusion of the user query
+    if user_query.lower() in enhanced_query.lower():
+        validation_issues.append("Raw user query inserted into template")
+    
+    # Check if major words from the original query are present
+    major_words = [word for word in user_query.lower().split() 
+                  if len(word) > 4 and word not in ["write", "about", "create", "make"]]
+    
+    missing_words = [word for word in major_words 
+                    if word not in enhanced_query.lower()]
+    
+    if missing_words:
+        validation_issues.append(f"Missing key words: {', '.join(missing_words)}")
+    
+    # Determine final validation result from rule-based validation
+    final_validation = "NEEDS_ADJUSTMENT" if validation_issues else "VALID"
+    
+    # Log the fallback validation result with details
+    if validation_issues:
+        logger.info(f"⚠️ Rule-based validation result: {final_validation} with {len(validation_issues)} issues")
+        for i, issue in enumerate(validation_issues):
+            logger.info(f"  Issue {i+1}: {issue}")
+    else:
+        logger.info("✅ Rule-based validation result: VALID - No issues detected")
+    
+    return {**state, "validation_result": final_validation, "validation_issues": validation_issues}
 
 async def adjust_query(state: QueryState) -> QueryState:
     """Adjust the enhanced query to address validation issues."""
@@ -623,7 +932,9 @@ async def generate_response(state: QueryState) -> QueryState:
         provider = AIProvider.create(provider_config)
         
         logger.info(f"Sending query to provider: {final_query[:50]}...")
-        response = await provider.generate_response(final_query)
+        
+        # Use higher temperature for creative generation
+        response = await provider.generate_response(final_query, temperature=0.7)
         
         logger.info("Response generated successfully")
         return {**state, "final_query": final_query, "response": response}
