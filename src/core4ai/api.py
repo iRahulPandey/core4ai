@@ -533,6 +533,36 @@ class Core4AI:
             }
             return error_response
     
+    def configure_analytics(self, enabled: bool = True, db_path: Optional[str] = None) -> 'Core4AI':
+        """
+        Configure analytics settings.
+        
+        Args:
+            enabled: Whether analytics is enabled
+            db_path: Path to the analytics database file (None for default)
+            
+        Returns:
+            Self for method chaining
+        """
+        from .config.config import set_analytics_config
+        
+        # Update analytics config
+        set_analytics_config(enabled=enabled, db_path=db_path)
+        
+        # Initialize analytics database if enabled
+        if enabled:
+            from .analytics.tracking import ensure_analytics_db
+            if ensure_analytics_db():
+                print(f"✅ Analytics enabled")
+                if db_path:
+                    print(f"Analytics database path: {db_path}")
+            else:
+                print(f"⚠️ Analytics initialization failed. Analytics will be disabled.")
+        else:
+            print(f"ℹ️ Analytics disabled")
+            
+        return self
+    
     def get_prompt_analytics(self, prompt_name: Optional[str] = None, 
                        time_range: Optional[int] = None,
                        version: Optional[int] = None,
