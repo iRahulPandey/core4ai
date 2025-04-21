@@ -63,12 +63,12 @@ class OllamaProvider(AIProvider):
         for param in ['max_tokens', 'timeout', 'max_retries']:
             if param in self.kwargs and self.kwargs[param] is not None:
                 model_params[param] = self.kwargs[param]
-                
+                    
         # Create a specialized model for structured output
         structured_model = ChatOllama(**model_params)
         
-        # Now apply the with_structured_output method
-        return structured_model.with_structured_output(output_schema, method=method)
+        # Always use parser method for Ollama models regardless of the method parameter
+        return structured_model.with_structured_output(output_schema, method="parser")
     
     async def generate_response(self, prompt: str, system_message: Optional[str] = None, temperature: Optional[float] = None) -> str:
         """Generate a response using Ollama."""
