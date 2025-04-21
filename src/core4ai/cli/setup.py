@@ -6,7 +6,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from ..config.config import load_config, save_config, ensure_config_dir
+from ..config.config import load_config, save_config, ensure_config_dir, CONFIG_DIR
 from ..providers.utilities import verify_ollama_running, get_ollama_models
 
 logger = logging.getLogger("core4ai.setup")
@@ -39,6 +39,8 @@ def validate_mlflow_uri(uri):
     # If we get here, none of the endpoints worked
     logger.warning(f"Could not validate MLflow at {uri} on any standard endpoint")
     return False
+
+# Add to src/core4ai/cli/setup.py
 
 def setup_wizard():
     """Interactive setup wizard for core4ai."""
@@ -297,6 +299,84 @@ def setup_wizard():
     
     config['provider'] = provider_config
     
+    # Add Analytics Configuration
+    click.echo("\n📊 Analytics Configuration")
+    click.echo("Core4AI can track prompt usage and performance to help you optimize your prompts.")
+    
+    enable_analytics = click.confirm("Would you like to enable analytics?", default=True)
+    config['analytics'] = {'enabled': enable_analytics}
+    
+    if enable_analytics:
+        import importlib
+        # Set analytics storage location
+        default_analytics_location = str(CONFIG_DIR / "analytics.db")
+        custom_location = click.confirm("Use custom location for analytics database?", default=False)
+        
+        if custom_location:
+            # Ask for custom location
+            analytics_location = click.prompt(
+                "Enter path for analytics database", 
+                default=default_analytics_location
+            )
+            
+            # Make sure parent directory exists
+            try:
+                parent_dir = Path(analytics_location).parent
+                if not parent_dir.exists():
+                    parent_dir.mkdir(parents=True)
+                    click.echo(f"Created directory: {parent_dir}")
+            except Exception as e:
+                click.echo(f"⚠️  Error creating directory: {e}")
+                click.echo("Using default location instead.")
+                analytics_location = default_analytics_location
+        else:
+            analytics_location = default_analytics_location
+        
+        config['analytics']['db_path'] = analytics_location
+        
+        # First save the config to enable analytics before initialization
+        save_config(config)
+
+        # Then initialize analytics database
+        try:
+            from ..analytics.tracking import ensure_analytics_db
+            # Set the database path directly in the tracking module
+            from ..analytics.tracking import get_analytics_db_path
+            import sys
+            
+            # Force reload analytics config now that we've saved it
+            importlib.reload(sys.modules['core4ai.analytics.tracking'])
+            
+            # Now initialize the database with analytics already enabled in config
+            if ensure_analytics_db():
+                click.echo(f"✅ Analytics database initialized at {analytics_location}")
+            else:
+                click.echo(f"⚠️  Analytics database initialization failed. Analytics will be disabled.")
+                config['analytics']['enabled'] = False
+                # Save updated config again
+                save_config(config)
+        except Exception as e:
+            click.echo(f"⚠️  Error initializing analytics database: {e}")
+            click.echo("Analytics will be disabled.")
+            config['analytics']['enabled'] = False
+            # Save updated config again
+            save_config(config)
+    
+    # Register sample prompts
+    if click.confirm("\nWould you like to register the built-in sample prompts?", default=True):
+        try:
+            from ..prompt_manager.registry import register_sample_prompts
+            result = register_sample_prompts()
+            
+            if result.get("status") == "success":
+                click.echo(f"✅ Successfully registered {result.get('registered', 0)} sample prompts")
+                if result.get("skipped", 0) > 0:
+                    click.echo(f"ℹ️  Skipped {result.get('skipped', 0)} existing prompts")
+            else:
+                click.echo(f"⚠️  Error registering sample prompts: {result.get('error', 'Unknown error')}")
+        except Exception as e:
+            click.echo(f"⚠️  Error registering sample prompts: {e}")
+    
     # Save the configuration
     save_config(config)
     
@@ -308,4 +388,8 @@ def setup_wizard():
     click.echo("  core4ai register  - Register a new prompt")
     click.echo("  core4ai list      - List available prompts")
     click.echo("  core4ai chat      - Chat with AI using enhanced prompts")
+    
+    if enable_analytics:
+        click.echo("  core4ai analytics - View prompt usage analytics")
+    
     click.echo("\nFor more information, use 'core4ai --help'")

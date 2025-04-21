@@ -60,6 +60,8 @@ The wizard will guide you through:
 1. **MLflow Configuration**: Enter the URI of your MLflow server (default: http://localhost:8080)
 2. **Existing Prompts Import**: Import existing prompts from MLflow if needed
 3. **AI Provider Selection**: Choose between OpenAI or Ollama and configure the selected provider
+4. **Analytics Configuration**: Enable/disable usage tracking and analytics
+5. **Sample Prompts**: Register built-in sample prompt templates
 
 ### Python API Setup
 
@@ -343,7 +345,9 @@ This will register the following prompt types:
 | `comparison_prompt` | Compare items or concepts | item1, item2 |
 | `product_description_prompt` | Product descriptions | length, product_name, product_category |
 | `summary_prompt` | Content summarization | length, content_type, content |
-| `test_prompt` | Test examples | formality |
+| `research_prompt` | Research analysis | topic, tone, audience_expertise |
+| `interview_prompt` | Interview preparation | position_title, company_type, experience_level |
+| `syllabus_prompt` | Learning syllabi | subject, audience, duration |
 
 Each prompt is designed for specific use cases and includes variables that can be automatically extracted from user queries. You can view the details of any prompt with:
 
@@ -362,6 +366,91 @@ from core4ai.prompt_manager.registry import get_prompt_details
 # Get details of a specific prompt
 details = get_prompt_details("essay_prompt@production")
 print(details)
+```
+
+## 📊 Prompt Analytics
+
+Core4AI includes a powerful analytics system that helps you track and analyze prompt usage to optimize your workflows.
+
+### Analytics Features
+
+- **Usage Tracking**: Record every use of a prompt with performance metrics
+- **Provider Analysis**: See which AI providers perform best with different prompts
+- **Version Comparison**: Compare multiple versions of the same prompt
+- **Temporal Analysis**: Track prompt usage over time
+- **Performance Metrics**: Measure confidence scores, processing times, and success rates
+
+### Using Analytics
+
+#### CLI Approach
+
+```bash
+# View analytics for all prompts
+core4ai analytics prompt
+
+# View analytics for a specific prompt
+core4ai analytics prompt --name email_prompt
+
+# View analytics for the last 30 days
+core4ai analytics prompt --time-range 30
+
+# View overall usage statistics
+core4ai analytics usage
+
+# Compare different versions of a prompt
+core4ai analytics compare --name email_prompt
+
+# Export analytics data to JSON
+core4ai analytics prompt --output analytics.json
+
+# Clear analytics data
+core4ai analytics clear
+```
+
+#### Python API Approach
+
+```python
+from core4ai import Core4AI
+
+ai = Core4AI()
+
+# Get analytics for all prompts
+all_analytics = ai.get_prompt_analytics()
+print(f"Total prompts tracked: {len(all_analytics['metrics'])}")
+
+# Get analytics for a specific prompt
+email_analytics = ai.get_prompt_analytics("email_prompt")
+if email_analytics["metrics"]:
+    print(f"Email prompt used {email_analytics['metrics'][0]['total_uses']} times")
+
+# Compare different versions of a prompt
+comparison = ai.compare_prompt_versions("essay_prompt")
+for metric in comparison["metrics"]:
+    print(f"Version {metric['prompt_version']}: {metric['avg_confidence']}% confidence")
+
+# Get overall usage statistics
+usage_stats = ai.get_usage_stats(time_range=30)  # Last 30 days
+print(f"Total usage in last 30 days: {usage_stats['total_count']}")
+
+# Clear analytics for a specific prompt
+ai.clear_analytics("test_prompt")
+```
+
+### Analytics Configuration
+
+You can configure analytics during setup or programmatically:
+
+```python
+from core4ai.config.config import set_analytics_config
+
+# Enable analytics
+set_analytics_config(enabled=True)
+
+# Disable analytics
+set_analytics_config(enabled=False)
+
+# Set custom database location
+set_analytics_config(enabled=True, db_path="/path/to/analytics.db")
 ```
 
 ## 🔄 Provider Configuration
@@ -440,6 +529,7 @@ ai.save_config()
 | List | List available prompts | `core4ai list --details` | `ai.list_prompts()` |
 | List Types | List prompt types | `core4ai list-types` | `ai.list_prompt_types()` |
 | Chat | Chat with enhanced prompts | `core4ai chat "Write about AI"` | `response = ai.chat("Write about AI")`<br>`print(response["response"])` |
+| Analytics | View prompt analytics | `core4ai analytics prompt` | `ai.get_prompt_analytics()` |
 | Version | Show version info | `core4ai version` | `from core4ai import __version__`<br>`print(__version__)` |
 
 ## 📊 How Core4AI Works
@@ -453,6 +543,7 @@ Core4AI follows this workflow to process queries:
 5. **Validation**: Validate the enhanced prompt for completeness and accuracy
 6. **Adjustment**: Adjust the prompt if validation issues are found
 7. **AI Response**: Send the optimized prompt to the AI provider
+8. **Analytics**: Track usage metrics and performance statistics
 
 ### From Query to Enhanced Response
 The user experience with Core4AI is straightforward yet powerful:
@@ -511,6 +602,26 @@ If you encounter problems connecting to MLflow:
    ai.save_config()
    ```
 
+### Analytics Issues
+
+If you experience issues with analytics:
+
+1. Check if analytics is enabled:
+   ```bash
+   core4ai version
+   ```
+   The output will show analytics status.
+
+2. Verify database location:
+   ```bash
+   ls -la ~/.core4ai/analytics.db
+   ```
+   
+3. Reset analytics if needed:
+   ```bash
+   core4ai analytics clear
+   ```
+   
 ## 📜 License
 
 This project is licensed under the Apache License 2.0

@@ -429,7 +429,7 @@ class Core4AI:
             "response": f"Error: {error_msg}"
         }
     
-    def chat(self, query: str, verbose: bool = False) -> Dict[str, Any]:
+    def chat(self, query: str, verbose: bool = False, record_analytics: bool = True) -> Dict[str, Any]:
         """
         Chat with AI using enhanced prompts.
         
@@ -439,6 +439,7 @@ class Core4AI:
         Args:
             query: The user query to process
             verbose: Whether to include verbose processing details
+            record_analytics: Whether to record analytics data
             
         Returns:
             Dictionary with response and processing details
@@ -509,7 +510,7 @@ class Core4AI:
         # Execute the query with robust error handling
         try:
             # Pass the in-memory configuration to ensure consistency
-            result = self._execute_async_query(query, in_memory_provider, verbose)
+            result = self._execute_async_query(query, in_memory_provider, verbose, record_analytics)
             
             # Add provider information to the response
             result["provider"] = {
@@ -532,7 +533,97 @@ class Core4AI:
             }
             return error_response
     
-    def _execute_async_query(self, query: str, provider_config: Dict[str, Any], verbose: bool) -> Dict[str, Any]:
+    def configure_analytics(self, enabled: bool = True, db_path: Optional[str] = None) -> 'Core4AI':
+        """
+        Configure analytics settings.
+        
+        Args:
+            enabled: Whether analytics is enabled
+            db_path: Path to the analytics database file (None for default)
+            
+        Returns:
+            Self for method chaining
+        """
+        from .config.config import set_analytics_config
+        
+        # Update analytics config
+        set_analytics_config(enabled=enabled, db_path=db_path)
+        
+        # Initialize analytics database if enabled
+        if enabled:
+            from .analytics.tracking import ensure_analytics_db
+            if ensure_analytics_db():
+                print(f"✅ Analytics enabled")
+                if db_path:
+                    print(f"Analytics database path: {db_path}")
+            else:
+                print(f"⚠️ Analytics initialization failed. Analytics will be disabled.")
+        else:
+            print(f"ℹ️ Analytics disabled")
+            
+        return self
+    
+    def get_prompt_analytics(self, prompt_name: Optional[str] = None, 
+                       time_range: Optional[int] = None,
+                       version: Optional[int] = None,
+                       limit: int = 100) -> Dict[str, Any]:
+        """
+        Get analytics data for prompt usage.
+        
+        Args:
+            prompt_name: Name of the prompt to analyze (None for all prompts)
+            time_range: Time range in days (None for all time)
+            version: Specific version to analyze (None for all versions)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Dictionary with analytics data
+        """
+        from .analytics.tracking import get_prompt_analytics as get_analytics
+        return get_analytics(prompt_name, time_range, version, limit)
+
+    def get_usage_stats(self, time_range: Optional[int] = 30) -> Dict[str, Any]:
+        """
+        Get usage statistics for all prompts.
+        
+        Args:
+            time_range: Time range in days (None for all time)
+            
+        Returns:
+            Dictionary with usage statistics
+        """
+        from .analytics.tracking import get_usage_stats as get_stats
+        return get_stats(time_range)
+
+    def compare_prompt_versions(self, prompt_name: str, versions: Optional[List[int]] = None) -> Dict[str, Any]:
+        """
+        Compare different versions of a prompt.
+        
+        Args:
+            prompt_name: Name of the prompt to compare
+            versions: List of versions to compare (None for all versions)
+            
+        Returns:
+            Dictionary with comparison data
+        """
+        from .analytics.tracking import compare_prompt_versions as compare_versions
+        return compare_versions(prompt_name, versions)
+
+    def clear_analytics(self, prompt_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Clear analytics data.
+        
+        Args:
+            prompt_name: Name of the prompt to clear data for (None for all prompts)
+            
+        Returns:
+            Dictionary with operation status
+        """
+        from .analytics.tracking import clear_analytics as clear_data
+        return clear_data(prompt_name)
+    
+    def _execute_async_query(self, query: str, provider_config: Dict[str, Any], 
+                        verbose: bool, record_analytics: bool) -> Dict[str, Any]:
         """
         Execute the query using the appropriate async approach based on environment.
         
@@ -540,6 +631,7 @@ class Core4AI:
             query: The user query
             provider_config: Provider configuration (will be used directly)
             verbose: Whether to show verbose output
+            record_analytics: Whether to record analytics data
             
         Returns:
             Response dictionary
@@ -567,7 +659,7 @@ class Core4AI:
                 # We're in a notebook, use the current event loop
                 loop = asyncio.get_event_loop()
                 # Pass provider_config directly to process_query
-                return loop.run_until_complete(process_query(query, provider_config, verbose))
+                return loop.run_until_complete(process_query(query, provider_config, verbose, record_analytics))
             else:
                 # Standard case - create new event loop
                 new_loop = asyncio.new_event_loop()
@@ -575,7 +667,7 @@ class Core4AI:
                 
                 try:
                     # Pass provider_config directly
-                    return new_loop.run_until_complete(process_query(query, provider_config, verbose))
+                    return new_loop.run_until_complete(process_query(query, provider_config, verbose, record_analytics))
                 finally:
                     # Properly close the loop
                     try:
