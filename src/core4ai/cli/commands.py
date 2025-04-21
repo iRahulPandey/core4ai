@@ -43,6 +43,388 @@ def setup():
     This wizard helps you configure Core4AI with MLflow and your preferred AI provider.
     """
     setup_wizard()
+    
+# Add these commands to the CLI in src/core4ai/cli/commands.py
+
+@cli.group()
+def analytics():
+    """Analytics commands for prompt usage tracking.
+    
+    Examples:
+    
+    \b
+    # View analytics for a specific prompt
+    core4ai analytics prompt --name email_prompt
+    
+    \b
+    # View overall usage statistics
+    core4ai analytics usage --time-range 30
+    
+    \b
+    # Compare different versions of a prompt
+    core4ai analytics compare --name email_prompt --versions 1 2
+    """
+    pass
+
+@analytics.command(name="prompt")
+@click.option('--name', '-n', help='Name of the prompt to analyze')
+@click.option('--time-range', '-t', type=int, help='Time range in days')
+@click.option('--version', '-v', type=int, help='Specific version to analyze')
+@click.option('--limit', '-l', type=int, default=10, help='Maximum number of records')
+@click.option('--output', '-o', help='Save results to JSON file')
+def analytics_prompt(name, time_range, version, limit, output):
+    """View analytics for a specific prompt or all prompts.
+    
+    Examples:
+    
+    \b
+    # View analytics for email_prompt
+    core4ai analytics prompt --name email_prompt
+    
+    \b
+    # View analytics for the last 30 days
+    core4ai analytics prompt --time-range 30
+    
+    \b
+    # Export analytics data to a file
+    core4ai analytics prompt --output analytics.json
+    """
+    from ..analytics.tracking import get_prompt_analytics
+    
+    try:
+        result = get_prompt_analytics(name, time_range, version, limit)
+        
+        if result.get("status") == "success":
+            # Save to file if requested
+            if output:
+                with open(output, 'w') as f:
+                    json.dump(result, f, indent=2)
+                click.echo(f"✅ Analytics data written to {output}")
+            
+            # Print summary to console
+            if name:
+                click.echo(f"\n📊 Analytics for prompt: {name}")
+                
+                # Print metrics
+                metrics = result.get("metrics", [])
+                if metrics:
+                    click.echo("\nPrompt Metrics:")
+                    click.echo(f"{'Version':<10} {'Uses':<10} {'Conf %':<10} {'Duration':<10} {'Success %':<10}")
+                    click.echo("-" * 60)
+                    
+                    for metric in metrics:
+                        version = metric.get("prompt_version", "?")
+                        uses = metric.get("total_uses", 0)
+                        conf = round(metric.get("avg_confidence", 0), 1)
+                        duration = round(metric.get("avg_duration", 0), 2)
+                        success = round(metric.get("success_rate", 0), 1)
+                        
+                        click.echo(f"{version:<10} {uses:<10} {conf:<10} {duration:<10}s {success:<10}")
+                
+                # Print version comparison
+                version_comp = result.get("version_comparison", [])
+                if version_comp and len(version_comp) > 1:
+                    click.echo("\nVersion Comparison:")
+                    for v in version_comp:
+                        v_num = v.get("prompt_version", "?")
+                        uses = v.get("total_uses", 0)
+                        click.echo(f"Version {v_num}: {uses} uses, {round(v.get('avg_confidence', 0), 1)}% confidence")
+            else:
+                click.echo("\n📊 Analytics for all prompts")
+                
+                # Print most used prompts if available
+                most_used = result.get("most_used_prompts", [])
+                if most_used:
+                    click.echo("\nMost Used Prompts:")
+                    click.echo(f"{'Prompt':<25} {'Uses':<10} {'Conf %':<10} {'Success %':<10}")
+                    click.echo("-" * 60)
+                    
+                    for prompt in most_used:
+                        name = prompt.get("prompt_name", "?")
+                        uses = prompt.get("total_uses", 0)
+                        conf = round(prompt.get("avg_confidence", 0), 1)
+                        success = round(prompt.get("success_rate", 0), 1)
+                        
+                        click.echo(f"{name:<25} {uses:<10} {conf:<10} {success:<10}")
+            
+            # Print provider usage if available
+            provider_usage = result.get("provider_usage", [])
+            if provider_usage:
+                click.echo("\nProvider Performance:")
+                click.echo(f"{'Provider':<15} {'Model':<15} {'Uses':<10} {'Conf %':<10} {'Duration':<10} {'Success %':<10}")
+                click.echo("-" * 80)
+                
+                for prov in provider_usage:
+                    provider = prov.get("provider", "?")
+                    model = prov.get("model", "?")
+                    count = prov.get("count", 0)
+                    conf = round(prov.get("avg_confidence", 0), 1)
+                    duration = round(prov.get("avg_duration", 0), 2)
+                    success = round(prov.get("success_rate", 0), 1)
+                    
+                    click.echo(f"{provider:<15} {model:<15} {count:<10} {conf:<10} {duration:<10}s {success:<10}")
+            
+            # Show usage over time (last 7 days)
+            usage_by_date = result.get("usage_by_date", [])
+            if usage_by_date:
+                click.echo("\nRecent Usage:")
+                for date_data in usage_by_date[-7:]:  # Last 7 days
+                    date = date_data.get("date", "?")
+                    count = date_data.get("count", 0)
+                    bar = "█" * min(int(count / 2) + 1, 30)  # Simple ASCII chart
+                    click.echo(f"{date}: {count} {bar}")
+            
+            click.echo(f"\nShowing data for {result.get('count', 0)} usage records")
+            if time_range:
+                click.echo(f"Time range: Last {time_range} days")
+                
+            if not output:
+                click.echo("\nTip: Use --output FILENAME.json to export full analytics data")
+        else:
+            click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+
+@analytics.command(name="usage")
+@click.option('--time-range', '-t', type=int, default=30, help='Time range in days')
+@click.option('--output', '-o', help='Save results to JSON file')
+def analytics_usage(time_range, output):
+    """View overall usage statistics across all prompts.
+    
+    Examples:
+    
+    \b
+    # View usage stats for the last 30 days
+    core4ai analytics usage
+    
+    \b
+    # View usage stats for the last 90 days
+    core4ai analytics usage --time-range 90
+    
+    \b
+    # Export usage data to a file
+    core4ai analytics usage --output usage.json
+    """
+    from ..analytics.tracking import get_usage_stats
+    
+    try:
+        result = get_usage_stats(time_range)
+        
+        if result.get("status") == "success":
+            # Save to file if requested
+            if output:
+                with open(output, 'w') as f:
+                    json.dump(result, f, indent=2)
+                click.echo(f"✅ Usage data written to {output}")
+            
+            # Print summary to console
+            if time_range:
+                click.echo(f"\n📊 Usage Statistics (Last {time_range} days)")
+            else:
+                click.echo("\n📊 Usage Statistics (All time)")
+                
+            click.echo(f"Total Usages: {result.get('total_count', 0)}")
+            
+            # Print usage by prompt
+            usage_by_prompt = result.get("usage_by_prompt", [])
+            if usage_by_prompt:
+                click.echo("\nUsage by Prompt Type:")
+                click.echo(f"{'Prompt':<25} {'Count':<10} {'Conf %':<10} {'Duration':<10} {'Success %':<10}")
+                click.echo("-" * 70)
+                
+                for prompt in usage_by_prompt[:10]:  # Top 10
+                    name = prompt.get("prompt_name", "?")
+                    count = prompt.get("count", 0)
+                    conf = round(prompt.get("avg_confidence", 0), 1)
+                    duration = round(prompt.get("avg_duration", 0), 2)
+                    success = round(prompt.get("success_rate", 0), 1)
+                    
+                    click.echo(f"{name:<25} {count:<10} {conf:<10} {duration:<10}s {success:<10}")
+            
+            # Print provider stats
+            provider_stats = result.get("provider_stats", [])
+            if provider_stats:
+                click.echo("\nProvider Statistics:")
+                click.echo(f"{'Provider':<15} {'Model':<15} {'Count':<8} {'Fallback %':<10} {'Success %':<10}")
+                click.echo("-" * 70)
+                
+                for prov in provider_stats:
+                    provider = prov.get("provider", "?")
+                    model = prov.get("model", "?")
+                    count = prov.get("count", 0)
+                    fallback = round(prov.get("fallback_rate", 0), 1)
+                    success = round(prov.get("success_rate", 0), 1)
+                    
+                    click.echo(f"{provider:<15} {model:<15} {count:<8} {fallback:<10} {success:<10}")
+            
+            # Print content type stats
+            content_stats = result.get("content_stats", [])
+            if content_stats:
+                click.echo("\nContent Type Statistics:")
+                click.echo(f"{'Content Type':<20} {'Count':<8} {'Success %':<10}")
+                click.echo("-" * 50)
+                
+                for content in content_stats[:10]:  # Top 10
+                    c_type = content.get("content_type", "?")
+                    count = content.get("count", 0)
+                    success = round(content.get("success_rate", 0), 1)
+                    
+                    click.echo(f"{c_type:<20} {count:<8} {success:<10}")
+            
+            # Print usage by day
+            usage_by_day = result.get("usage_by_day", [])
+            if usage_by_day:
+                click.echo("\nUsage Trend:")
+                
+                # Show last 7 days
+                for day_data in usage_by_day[-7:]:
+                    day = day_data.get("date", "?")
+                    count = day_data.get("count", 0)
+                    bar = "█" * min(int(count / 2) + 1, 30)  # Simple ASCII chart
+                    click.echo(f"{day}: {count} {bar}")
+                    
+            if not output:
+                click.echo("\nTip: Use --output FILENAME.json to export full usage data")
+        else:
+            click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+
+@analytics.command(name="compare")
+@click.option('--name', '-n', required=True, help='Name of the prompt to compare')
+@click.option('--versions', '-v', multiple=True, type=int, help='Versions to compare')
+@click.option('--output', '-o', help='Save results to JSON file')
+def analytics_compare(name, versions, output):
+    """Compare different versions of the same prompt.
+    
+    Examples:
+    
+    \b
+    # Compare all versions of email_prompt
+    core4ai analytics compare --name email_prompt
+    
+    \b
+    # Compare specific versions
+    core4ai analytics compare --name email_prompt --versions 1 --versions 2
+    
+    \b
+    # Export comparison data to a file
+    core4ai analytics compare --name email_prompt --output comparison.json
+    """
+    from ..analytics.tracking import compare_prompt_versions
+    
+    try:
+        # Convert versions to list
+        version_list = list(versions) if versions else None
+        
+        result = compare_prompt_versions(name, version_list)
+        
+        if result.get("status") == "success":
+            # Save to file if requested
+            if output:
+                with open(output, 'w') as f:
+                    json.dump(result, f, indent=2)
+                click.echo(f"✅ Comparison data written to {output}")
+            
+            # Print summary to console
+            click.echo(f"\n🔄 Version Comparison for {name}")
+            
+            # Print metrics by version
+            metrics = result.get("metrics", [])
+            if metrics:
+                click.echo("\nMetrics by Version:")
+                click.echo(f"{'Version':<10} {'Uses':<10} {'Conf %':<10} {'Duration':<10} {'Success %':<10} {'Last Used':<20}")
+                click.echo("-" * 80)
+                
+                for metric in metrics:
+                    version = metric.get("prompt_version", "?")
+                    uses = metric.get("total_uses", 0)
+                    conf = round(metric.get("avg_confidence", 0), 1)
+                    duration = round(metric.get("avg_duration", 0), 2)
+                    success = round(metric.get("success_rate", 0), 1)
+                    last_used = metric.get("last_used_datetime", "Never")
+                    
+                    click.echo(f"{version:<10} {uses:<10} {conf:<10} {duration:<10}s {success:<10} {last_used:<20}")
+            
+            # Print parameters by version
+            params_by_version = result.get("parameters_by_version", {})
+            if params_by_version:
+                click.echo("\nCommon Parameters by Version:")
+                
+                for version, params in params_by_version.items():
+                    click.echo(f"\nVersion {version} Parameters:")
+                    
+                    if not params:
+                        click.echo("  No parameter data available")
+                        continue
+                        
+                    for i, param_data in enumerate(params[:3]):  # Show top 3
+                        param_set = param_data.get("parameters", {})
+                        count = param_data.get("count", 0)
+                        
+                        # Format parameters as a compact string
+                        param_str = ", ".join([f"{k}={v}" for k, v in param_set.items()])
+                        if len(param_str) > 60:
+                            param_str = param_str[:57] + "..."
+                            
+                        click.echo(f"  {i+1}. {param_str} (used {count} times)")
+            
+            # Print provider stats by version
+            provider_by_version = result.get("provider_by_version", {})
+            if provider_by_version:
+                click.echo("\nProvider Performance by Version:")
+                
+                for version, providers in provider_by_version.items():
+                    if not providers:
+                        continue
+                        
+                    click.echo(f"\nVersion {version} Providers:")
+                    click.echo(f"  {'Provider':<15} {'Model':<15} {'Uses':<8} {'Success %':<10}")
+                    click.echo("  " + "-" * 55)
+                    
+                    for prov in providers:
+                        provider = prov.get("provider", "?")
+                        model = prov.get("model", "?")
+                        count = prov.get("count", 0)
+                        success = round(prov.get("success_rate", 0), 1)
+                        
+                        click.echo(f"  {provider:<15} {model:<15} {count:<8} {success:<10}")
+                    
+            if not output:
+                click.echo("\nTip: Use --output FILENAME.json to export full comparison data")
+        else:
+            click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+
+@analytics.command(name="clear")
+@click.option('--name', '-n', help='Name of the prompt to clear data for (omit to clear all)')
+@click.confirmation_option(prompt='Are you sure you want to clear analytics data?')
+def analytics_clear(name):
+    """Clear analytics data.
+    
+    Examples:
+    
+    \b
+    # Clear data for a specific prompt
+    core4ai analytics clear --name email_prompt
+    
+    \b
+    # Clear all analytics data
+    core4ai analytics clear
+    """
+    from ..analytics.tracking import clear_analytics
+    
+    try:
+        result = clear_analytics(name)
+        
+        if result.get("status") == "success":
+            click.echo(f"✅ {result.get('message', 'Analytics data cleared')}")
+            click.echo(f"Rows affected: {result.get('rows_affected', 0)}")
+        else:
+            click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
 
 @cli.command()
 @click.argument('prompt', required=False)

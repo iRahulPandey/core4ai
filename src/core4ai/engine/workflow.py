@@ -330,6 +330,7 @@ async def match_prompt(state: QueryState) -> QueryState:
                     "prompt_name": prompt_name,
                     "confidence": match_result.confidence,
                     "reasoning": match_result.reasoning,
+                    "fallback_used": False  # Standard LLM match, not a fallback
                 },
                 "parameters": match_result.parameters,
                 "should_skip_enhance": False
@@ -404,7 +405,12 @@ async def match_prompt(state: QueryState) -> QueryState:
         "qa": ["question", "answer", "qa", "respond to", "reply to", "doubt"],
         "social_media": ["post", "tweet", "social media", "instagram", "facebook", "linkedin"],
         "report": ["report", "business report", "analysis report", "status", "findings"],
-        "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"]
+        "comparison": ["compare", "comparison", "versus", "vs", "differences", "similarities"],
+        "research": ["research", "investigate", "study", "literature", "academic"],
+        "interview": ["interview", "job", "hiring", "position", "application"],
+        "sales_copy": ["sales", "copy", "product", "persuasive", "marketing"],
+        "api_documentation": ["api", "documentation", "endpoint", "interface", "reference"],
+        "syllabus": ["syllabus", "course", "lesson", "curriculum", "learning"]
     }
     
     for prompt_type, keywords in keyword_map.items():
@@ -422,8 +428,18 @@ async def match_prompt(state: QueryState) -> QueryState:
         
         logger.info(f"✅ Matched query to '{prompt_name}' using fallback keyword matching")
         
-        # Extract basic parameters
+        # Extract basic parameters based on content type
         parameters = {"topic": query.replace("write", "").replace("about", "").strip()}
+        
+        # Add more specific parameters for certain prompt types
+        if content_type == "email":
+            parameters["formality"] = "professional"
+            parameters["recipient_type"] = "colleague"
+        elif content_type == "creative":
+            parameters["genre"] = "story"
+        elif content_type == "code":
+            parameters["language"] = "python"
+            parameters["task"] = "implement a function to " + parameters["topic"]
         
         return {
             **state, 
@@ -433,6 +449,7 @@ async def match_prompt(state: QueryState) -> QueryState:
                 "prompt_name": prompt_name,
                 "confidence": 70,  # Medium confidence for keyword matching
                 "reasoning": f"Matched based on keywords in query",
+                "fallback_used": True  # Flag that fallback was used
             },
             "parameters": parameters,
             "should_skip_enhance": False

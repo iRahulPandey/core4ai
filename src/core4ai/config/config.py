@@ -1,6 +1,7 @@
 import os
 import yaml
 from pathlib import Path
+from typing import Optional
 import logging
 
 logger = logging.getLogger("core4ai.config")
@@ -49,6 +50,49 @@ def get_mlflow_uri():
     # Fall back to config
     config = load_config()
     return config.get('mlflow_uri')
+
+def get_analytics_config():
+    """Get the analytics configuration."""
+    config = load_config()
+    analytics_config = config.get('analytics', {})
+    
+    # Set default values if not configured
+    if 'enabled' not in analytics_config:
+        analytics_config['enabled'] = False
+        
+    if 'db_path' not in analytics_config:
+        analytics_config['db_path'] = str(CONFIG_DIR / "analytics.db")
+        
+    return analytics_config
+
+def set_analytics_config(enabled: bool, db_path: Optional[str] = None):
+    """Set the analytics configuration.
+    
+    Args:
+        enabled: Whether analytics is enabled
+        db_path: Path to the analytics database file
+    """
+    config = load_config()
+    
+    # Initialize analytics config if it doesn't exist
+    if 'analytics' not in config:
+        config['analytics'] = {}
+        
+    # Update values
+    config['analytics']['enabled'] = enabled
+    
+    if db_path:
+        config['analytics']['db_path'] = db_path
+    elif 'db_path' not in config['analytics']:
+        config['analytics']['db_path'] = str(CONFIG_DIR / "analytics.db")
+        
+    # Save updated config
+    save_config(config)
+    
+    # If analytics is being enabled, ensure the database is initialized
+    if enabled:
+        from ..analytics.tracking import ensure_analytics_db
+        ensure_analytics_db()
 
 def get_provider_config():
     """Get the AI provider configuration."""

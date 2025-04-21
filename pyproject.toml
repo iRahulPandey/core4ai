@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "core4ai"
-version = "1.1.8"
+version = "1.2.0"
 description = "Contextual Optimization and Refinement Engine for AI"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -40,8 +40,9 @@ dependencies = [
     "aiohttp",
     "rich>=10.0.0",
     "nest-asyncio>=1.5.6",
+    "importlib-metadata>=4.0.0",
 ]
-keywords = ["llm", "prompt", "mlflow", "ai", "ollama", "openai", "template"]
+keywords = ["llm", "prompt", "mlflow", "ai", "ollama", "openai", "template", "analytics"]
 
 [project.optional-dependencies]
 dev = [
