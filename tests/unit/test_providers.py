@@ -21,9 +21,8 @@ class TestProviders:
         with patch('src.core4ai.providers.openai_provider.OpenAIProvider') as mock_openai:
             provider = AIProvider.create({"type": "openai", "api_key": "test-key"})
             assert provider == mock_openai.return_value
-            # Updated to use keyword arguments
-            mock_openai.assert_called_once_with(api_key="test-key", model="gpt-3.5-turbo")
-    
+            # Include temperature in the expected call
+            mock_openai.assert_called_once_with(api_key="test-key", model="gpt-3.5-turbo", temperature=0.7)
     @pytest.mark.asyncio
     async def test_openai_provider(self):
         """Test OpenAI provider functionality."""
@@ -40,8 +39,8 @@ class TestProviders:
             
             # Verify results
             assert response == "OpenAI response"
-            # No longer checking for temperature parameter
-            mock_chat.assert_called_once_with(api_key="test-key", model="gpt-3.5-turbo")
+            # Include temperature in the expected call
+            mock_chat.assert_called_once_with(api_key="test-key", model="gpt-3.5-turbo", temperature=0.7)
     
     @pytest.mark.asyncio
     async def test_ollama_provider(self):
@@ -59,7 +58,8 @@ class TestProviders:
             
             # Verify results
             assert response == "Ollama response"
-            mock_chat.assert_called_once_with(base_url="http://test-uri", model="test-model")
+            # Include temperature in the expected call
+            mock_chat.assert_called_once_with(base_url="http://test-uri", model="test-model", temperature=0.7)
 
     @pytest.mark.asyncio
     async def test_openai_provider_error(self):

@@ -25,13 +25,14 @@ class AIProvider(ABC):
         """Get the underlying LangChain model."""
         pass
     
+    @abstractmethod
     def with_structured_output(self, output_schema: Type[BaseModel], method="function_calling"):
         """Get a version of the langchain model with structured output."""
-        return self.langchain_model.with_structured_output(output_schema, method=method)
+        pass
     
     @abstractmethod
-    async def generate_response(self, prompt: str, system_message: Optional[str] = None) -> str:
-        """Generate a response for the given prompt with optional system message."""
+    async def generate_response(self, prompt: str, system_message: Optional[str] = None, temperature: Optional[float] = None) -> str:
+        """Generate a response for the given prompt with optional system message and temperature."""
         pass
     
     @classmethod
@@ -57,6 +58,7 @@ class AIProvider(ABC):
             return OpenAIProvider(
                 api_key=config.get('api_key'),
                 model=config.get('model', "gpt-3.5-turbo"),
+                temperature=config.get('temperature', 0.7),
                 **kwargs
             )
         elif provider_type == 'ollama':
@@ -65,6 +67,7 @@ class AIProvider(ABC):
             return OllamaProvider(
                 uri=config.get('uri'),
                 model=config.get('model'),
+                temperature=config.get('temperature', 0.7),
                 **kwargs
             )
         else:
