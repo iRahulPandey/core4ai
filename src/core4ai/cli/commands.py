@@ -642,6 +642,69 @@ def list_types():
         click.echo("\nRegister sample prompts to add default types:")
         click.echo("  core4ai register --samples")
 
+@analytics.command(name="dashboard")
+@click.option('--output-dir', '-o', help='Directory to save the dashboard')
+@click.option('--filename', '-f', help='Filename for the dashboard')
+@click.option('--time-range', '-t', type=int, default=30, help='Time range in days')
+@click.option('--open', is_flag=True, help='Open the dashboard in browser after generation')
+def analytics_dashboard(output_dir, filename, time_range, open):
+    """Generate an HTML dashboard with analytics data.
+    
+    Examples:
+    
+    \b
+    # Generate a dashboard in current directory
+    core4ai analytics dashboard
+    
+    \b
+    # Generate dashboard with custom filename and location
+    core4ai analytics dashboard --output-dir ./reports --filename my_dashboard.html
+    
+    \b
+    # Generate dashboard for the last 90 days and open in browser
+    core4ai analytics dashboard --time-range 90 --open
+    """
+    from ..analytics.tracking import get_prompt_analytics, get_usage_stats
+    from ..utils.dashboard import generate_dashboard
+    
+    try:
+        # Get analytics data
+        analytics_data = get_prompt_analytics(time_range=time_range)
+        usage_data = get_usage_stats(time_range=time_range)
+        
+        # Check if analytics is enabled
+        if analytics_data.get("status") == "error" or usage_data.get("status") == "error":
+            if analytics_data.get("error", "").startswith("Analytics is disabled"):
+                click.echo("❌ Analytics is disabled. Enable it in the configuration.")
+                return
+            
+            # Some other error occurred
+            error_msg = analytics_data.get("error") or usage_data.get("error")
+            click.echo(f"❌ Error retrieving analytics data: {error_msg}")
+            return
+        
+        # Generate the dashboard
+        dashboard_path = generate_dashboard(
+            analytics_data, 
+            usage_data, 
+            output_dir=output_dir,
+            filename=filename
+        )
+        
+        click.echo(f"✅ Dashboard generated at: {dashboard_path}")
+        
+        # Open the dashboard in browser if requested
+        if open:
+            try:
+                import webbrowser
+                click.echo("Opening dashboard in browser...")
+                webbrowser.open(f"file://{dashboard_path}")
+            except Exception as e:
+                click.echo(f"⚠️ Could not open browser: {e}")
+        
+    except Exception as e:
+        click.echo(f"❌ Error generating dashboard: {e}")
+
 @cli.command()
 @click.argument('query')
 @click.option('--verbose', '-v', is_flag=True, help='Show verbose output')
