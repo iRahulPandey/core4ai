@@ -595,20 +595,6 @@ class Core4AI:
         from .analytics.tracking import get_usage_stats as get_stats
         return get_stats(time_range)
 
-    def compare_prompt_versions(self, prompt_name: str, versions: Optional[List[int]] = None) -> Dict[str, Any]:
-        """
-        Compare different versions of a prompt.
-        
-        Args:
-            prompt_name: Name of the prompt to compare
-            versions: List of versions to compare (None for all versions)
-            
-        Returns:
-            Dictionary with comparison data
-        """
-        from .analytics.tracking import compare_prompt_versions as compare_versions
-        return compare_versions(prompt_name, versions)
-
     def clear_analytics(self, prompt_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Clear analytics data.
