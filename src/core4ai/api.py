@@ -678,3 +678,54 @@ class Core4AI:
                 "enhanced": False,
                 "response": f"Error: {str(e)}"
             }
+            
+    def dashboard(self, output_dir: Optional[str] = None, 
+              filename: Optional[str] = None, 
+              time_range: Optional[int] = 30) -> str:
+        """
+        Generate an HTML dashboard with analytics data.
+        
+        Args:
+            output_dir: Directory to save the dashboard (default: current directory)
+            filename: Filename for the dashboard (default: coreai_stats_timestamp.html)
+            time_range: Time range in days (default: 30)
+            
+        Returns:
+            Path to the generated dashboard file
+        """
+        # Import the dashboard generator
+        from .utils.dashboard import generate_dashboard
+        
+        # Get analytics data
+        analytics_data = self.get_prompt_analytics(time_range=time_range)
+        usage_data = self.get_usage_stats(time_range=time_range)
+        
+        # Check if analytics is enabled
+        if analytics_data.get("status") == "error" or usage_data.get("status") == "error":
+            if analytics_data.get("error", "").startswith("Analytics is disabled"):
+                print("⚠️ Analytics is disabled. Enable it with: ai.configure_analytics(enabled=True)")
+                return ""
+            
+            # Some other error occurred
+            error_msg = analytics_data.get("error") or usage_data.get("error")
+            print(f"⚠️ Error retrieving analytics data: {error_msg}")
+            return ""
+        
+        # Generate the dashboard
+        dashboard_path = generate_dashboard(
+            analytics_data, 
+            usage_data, 
+            output_dir=output_dir,
+            filename=filename
+        )
+        
+        print(f"✅ Dashboard generated at: {dashboard_path}")
+        
+        # Try to automatically open the dashboard in browser
+        try:
+            import webbrowser
+            webbrowser.open(f"file://{dashboard_path}")
+        except Exception as e:
+            print(f"Note: Could not open dashboard automatically. Open the file manually.")
+        
+        return dashboard_path

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "core4ai"
-version = "1.2.2"
+version = "1.2.3"
 description = "Contextual Optimization and Refinement Engine for AI"
 readme = "README.md"
 requires-python = ">=3.8"

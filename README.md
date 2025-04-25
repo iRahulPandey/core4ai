@@ -401,6 +401,9 @@ core4ai analytics prompt --output analytics.json
 
 # Clear analytics data
 core4ai analytics clear
+
+# Generate a dashboard in current directory
+core4ai analytics dashboard
 ```
 
 #### Python API Approach
@@ -425,6 +428,10 @@ print(f"Total usage in last 30 days: {usage_stats['total_count']}")
 
 # Clear analytics for a specific prompt
 ai.clear_analytics("test_prompt")
+
+# Generate a dashboard with default settings
+dashboard_path = ai.dashboard()
+print(f"Dashboard saved to: {dashboard_path}")
 ```
 
 ### Analytics Configuration
