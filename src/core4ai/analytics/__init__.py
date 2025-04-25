@@ -1,7 +1,6 @@
 from .tracking import (
     get_prompt_analytics,
     get_usage_stats,
-    compare_prompt_versions,
     clear_analytics,
     is_analytics_enabled,
     ensure_analytics_db
@@ -10,7 +9,6 @@ from .tracking import (
 __all__ = [
     "get_prompt_analytics",
     "get_usage_stats", 
-    "compare_prompt_versions",
     "clear_analytics",
     "is_analytics_enabled",
     "ensure_analytics_db"

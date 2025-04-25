@@ -60,9 +60,6 @@ def analytics():
     # View overall usage statistics
     core4ai analytics usage --time-range 30
     
-    \b
-    # Compare different versions of a prompt
-    core4ai analytics compare --name email_prompt --versions 1 2
     """
     pass
 
@@ -285,113 +282,6 @@ def analytics_usage(time_range, output):
                     
             if not output:
                 click.echo("\nTip: Use --output FILENAME.json to export full usage data")
-        else:
-            click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
-    except Exception as e:
-        click.echo(f"❌ Error: {e}")
-
-@analytics.command(name="compare")
-@click.option('--name', '-n', required=True, help='Name of the prompt to compare')
-@click.option('--versions', '-v', multiple=True, type=int, help='Versions to compare')
-@click.option('--output', '-o', help='Save results to JSON file')
-def analytics_compare(name, versions, output):
-    """Compare different versions of the same prompt.
-    
-    Examples:
-    
-    \b
-    # Compare all versions of email_prompt
-    core4ai analytics compare --name email_prompt
-    
-    \b
-    # Compare specific versions
-    core4ai analytics compare --name email_prompt --versions 1 --versions 2
-    
-    \b
-    # Export comparison data to a file
-    core4ai analytics compare --name email_prompt --output comparison.json
-    """
-    from ..analytics.tracking import compare_prompt_versions
-    
-    try:
-        # Convert versions to list
-        version_list = list(versions) if versions else None
-        
-        result = compare_prompt_versions(name, version_list)
-        
-        if result.get("status") == "success":
-            # Save to file if requested
-            if output:
-                with open(output, 'w') as f:
-                    json.dump(result, f, indent=2)
-                click.echo(f"✅ Comparison data written to {output}")
-            
-            # Print summary to console
-            click.echo(f"\n🔄 Version Comparison for {name}")
-            
-            # Print metrics by version
-            metrics = result.get("metrics", [])
-            if metrics:
-                click.echo("\nMetrics by Version:")
-                click.echo(f"{'Version':<10} {'Uses':<10} {'Conf %':<10} {'Duration':<10} {'Success %':<10} {'Last Used':<20}")
-                click.echo("-" * 80)
-                
-                for metric in metrics:
-                    version = metric.get("prompt_version", "?")
-                    uses = metric.get("total_uses", 0)
-                    conf = round(metric.get("avg_confidence", 0), 1)
-                    duration = round(metric.get("avg_duration", 0), 2)
-                    success = round(metric.get("success_rate", 0), 1)
-                    last_used = metric.get("last_used_datetime", "Never")
-                    
-                    click.echo(f"{version:<10} {uses:<10} {conf:<10} {duration:<10}s {success:<10} {last_used:<20}")
-            
-            # Print parameters by version
-            params_by_version = result.get("parameters_by_version", {})
-            if params_by_version:
-                click.echo("\nCommon Parameters by Version:")
-                
-                for version, params in params_by_version.items():
-                    click.echo(f"\nVersion {version} Parameters:")
-                    
-                    if not params:
-                        click.echo("  No parameter data available")
-                        continue
-                        
-                    for i, param_data in enumerate(params[:3]):  # Show top 3
-                        param_set = param_data.get("parameters", {})
-                        count = param_data.get("count", 0)
-                        
-                        # Format parameters as a compact string
-                        param_str = ", ".join([f"{k}={v}" for k, v in param_set.items()])
-                        if len(param_str) > 60:
-                            param_str = param_str[:57] + "..."
-                            
-                        click.echo(f"  {i+1}. {param_str} (used {count} times)")
-            
-            # Print provider stats by version
-            provider_by_version = result.get("provider_by_version", {})
-            if provider_by_version:
-                click.echo("\nProvider Performance by Version:")
-                
-                for version, providers in provider_by_version.items():
-                    if not providers:
-                        continue
-                        
-                    click.echo(f"\nVersion {version} Providers:")
-                    click.echo(f"  {'Provider':<15} {'Model':<15} {'Uses':<8} {'Success %':<10}")
-                    click.echo("  " + "-" * 55)
-                    
-                    for prov in providers:
-                        provider = prov.get("provider", "?")
-                        model = prov.get("model", "?")
-                        count = prov.get("count", 0)
-                        success = round(prov.get("success_rate", 0), 1)
-                        
-                        click.echo(f"  {provider:<15} {model:<15} {count:<8} {success:<10}")
-                    
-            if not output:
-                click.echo("\nTip: Use --output FILENAME.json to export full comparison data")
         else:
             click.echo(f"❌ Error: {result.get('error', 'Unknown error')}")
     except Exception as e:

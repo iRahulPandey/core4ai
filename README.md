@@ -376,7 +376,6 @@ Core4AI includes a powerful analytics system that helps you track and analyze pr
 
 - **Usage Tracking**: Record every use of a prompt with performance metrics
 - **Provider Analysis**: See which AI providers perform best with different prompts
-- **Version Comparison**: Compare multiple versions of the same prompt
 - **Temporal Analysis**: Track prompt usage over time
 - **Performance Metrics**: Measure confidence scores, processing times, and success rates
 
@@ -396,9 +395,6 @@ core4ai analytics prompt --time-range 30
 
 # View overall usage statistics
 core4ai analytics usage
-
-# Compare different versions of a prompt
-core4ai analytics compare --name email_prompt
 
 # Export analytics data to JSON
 core4ai analytics prompt --output analytics.json
@@ -423,11 +419,6 @@ email_analytics = ai.get_prompt_analytics("email_prompt")
 if email_analytics["metrics"]:
     print(f"Email prompt used {email_analytics['metrics'][0]['total_uses']} times")
 
-# Compare different versions of a prompt
-comparison = ai.compare_prompt_versions("essay_prompt")
-for metric in comparison["metrics"]:
-    print(f"Version {metric['prompt_version']}: {metric['avg_confidence']}% confidence")
-
 # Get overall usage statistics
 usage_stats = ai.get_usage_stats(time_range=30)  # Last 30 days
 print(f"Total usage in last 30 days: {usage_stats['total_count']}")
@@ -441,16 +432,19 @@ ai.clear_analytics("test_prompt")
 You can configure analytics during setup or programmatically:
 
 ```python
-from core4ai.config.config import set_analytics_config
+from core4ai import Core4AI
+
+# initialize
+ai = Core4AI()
 
 # Enable analytics
-set_analytics_config(enabled=True)
+ai.configure_analytics(enabled=True)
 
 # Disable analytics
-set_analytics_config(enabled=False)
+ai.configure_analytics(enabled=False)
 
 # Set custom database location
-set_analytics_config(enabled=True, db_path="/path/to/analytics.db")
+ai.configure_analytics(enabled=True, db_path="/path/to/analytics.db")
 ```
 
 ## 🔄 Provider Configuration
