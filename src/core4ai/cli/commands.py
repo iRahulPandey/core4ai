@@ -833,7 +833,7 @@ def chat(query, verbose, simple):
 
     # Interactive mode if no query provided
     # Always display connection info in both modes
-    click.echo("\n🧠 MLflow Assistant Chat Mode")
+    click.echo("\n🧠 Core4AI Interactive Mode")
     click.echo(f"Connected to MLflow at: {mlflow_uri}")
     click.echo(f"Using {provider_config.get('type').upper()} with model: {provider_config.get('model', 'default')}")
     click.echo("\nType your questions and press Enter. Type /bye to exit.")
