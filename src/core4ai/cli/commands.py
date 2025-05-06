@@ -706,26 +706,44 @@ def analytics_dashboard(output_dir, filename, time_range, open):
         click.echo(f"❌ Error generating dashboard: {e}")
 
 @cli.command()
-@click.argument('query')
-@click.option('--verbose', '-v', is_flag=True, help='Show verbose output')
-@click.option('--simple', '-s', is_flag=True, help='Show only the response (no enhancement details)')
+@click.argument('query', required=False)
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed output and processing information')
+@click.option('--simple', '-s', is_flag=True, help='Show only the response for one-off queries (no details)')
 def chat(query, verbose, simple):
     """Chat with AI using enhanced prompts.
+    
+    If a query is provided, processes a single query and returns the result.
+    If no query is provided, starts an interactive chat session.
     
     Examples:
     
     \b
-    # Simple query
+    # Simple one-off query
     core4ai chat "Write an essay about climate change"
     
     \b
-    # Show only the response, no details
-    core4ai chat --simple "Write an email to my boss"
+    # Start interactive chat session (simple by default)
+    core4ai chat
     
     \b
-    # Show detailed information about prompt selection
-    core4ai chat --verbose "Create a technical explanation of quantum computing"
+    # Start interactive chat session with detailed processing info
+    core4ai chat --verbose
+    
+    \b
+    # Show only the response for one-off query, no details
+    core4ai chat --simple "Write an email to my boss"
     """
+    import time  # Add the time import
+    import logging
+
+    # Always save the current logging level regardless of mode
+    original_level = logging.getLogger().level
+    
+    # If simple mode, suppress all logging temporarily
+    if simple:
+        # Set logging to error level only to suppress info logging
+        logging.getLogger().setLevel(logging.ERROR)
+
     mlflow_uri = get_mlflow_uri()
     if not mlflow_uri:
         click.echo("❌ Error: MLflow URI not configured. Run 'core4ai setup' first.")
@@ -741,50 +759,161 @@ def chat(query, verbose, simple):
     if provider_config.get('type') == 'ollama' and not provider_config.get('uri'):
         provider_config['uri'] = 'http://localhost:11434'
     
-    if verbose:
-        click.echo(f"Processing query: {query}")
-        click.echo(f"Using provider: {provider_config['type']}")
-        click.echo(f"Using model: {provider_config.get('model', 'default')}")
-    
-    # Process the query
-    result = asyncio.run(process_query(query, provider_config, verbose))
-    
-    # Display results
+    # One-off mode if query is provided
+    if query:
+        # Process the query (existing behavior)
+        if verbose and not simple:
+            click.echo(f"Processing query: {query}")
+            click.echo(f"Using provider: {provider_config['type']}")
+            click.echo(f"Using model: {provider_config.get('model', 'default')}")
+        
+        try:
+            # Process the query
+            result = asyncio.run(process_query(query, provider_config, verbose and not simple))
+            
+            # Display results
+            if simple:
+                # Simple output - just the response
+                # Restore logging level before output
+                logging.getLogger().setLevel(original_level)
+                click.echo(result.get('response', 'No response received.'))
+            else:
+                # Detailed traceability output
+                prompt_match = result.get("prompt_match", {})
+                match_status = prompt_match.get("status", "unknown")
+                
+                click.echo("\n=== Core4AI Results ===\n")
+                click.echo(f"Original Query: {query}")
+                
+                if match_status == "matched":
+                    click.echo(f"\nMatched to: {prompt_match.get('prompt_name')}")
+                    click.echo(f"Confidence: {prompt_match.get('confidence')}%")
+                    if verbose and prompt_match.get('reasoning'):
+                        click.echo(f"Reasoning: {prompt_match.get('reasoning')}")
+                elif match_status == "no_match":
+                    click.echo("\nNo matching prompt template found.")
+                elif match_status == "no_prompts_available":
+                    click.echo("\nNo prompts available. Register some prompts first.")
+                
+                if result.get("content_type"):
+                    click.echo(f"Content Type: {result['content_type']}")
+                
+                # Show the enhanced query if available
+                if result.get("enhanced", False) and result.get("enhanced_query"):
+                    click.echo("\nEnhanced Query:")
+                    click.echo("-" * 80)
+                    click.echo(result['enhanced_query'])
+                    click.echo("-" * 80)
+                
+                click.echo("\nResponse:")
+                click.echo("=" * 80)
+                click.echo(result.get('response', 'No response received.'))
+                click.echo("=" * 80)
+        except Exception as e:
+            # Restore logging level before showing error
+            if simple:
+                logging.getLogger().setLevel(original_level)
+            click.echo(f"Error processing query: {e}")
+        
+        # If exiting after a simple one-off query, make sure to restore logging
+        if simple:
+            logging.getLogger().setLevel(original_level)
+            
+        return
+
+    # If simple mode was set, restore logging level for interactive mode
     if simple:
-        # Simple output - just the response
-        click.echo(result.get('response', 'No response received.'))
-    else:
-        # Detailed traceability output
-        prompt_match = result.get("prompt_match", {})
-        match_status = prompt_match.get("status", "unknown")
-        
-        click.echo("\n=== Core4AI Results ===\n")
-        click.echo(f"Original Query: {query}")
-        
-        if match_status == "matched":
-            click.echo(f"\nMatched to: {prompt_match.get('prompt_name')}")
-            click.echo(f"Confidence: {prompt_match.get('confidence')}%")
-            if verbose and prompt_match.get('reasoning'):
-                click.echo(f"Reasoning: {prompt_match.get('reasoning')}")
-        elif match_status == "no_match":
-            click.echo("\nNo matching prompt template found.")
-        elif match_status == "no_prompts_available":
-            click.echo("\nNo prompts available. Register some prompts first.")
-        
-        if result.get("content_type"):
-            click.echo(f"Content Type: {result['content_type']}")
-        
-        # Show the enhanced query if available
-        if result.get("enhanced", False) and result.get("enhanced_query"):
-            click.echo("\nEnhanced Query:")
-            click.echo("-" * 80)
-            click.echo(result['enhanced_query'])
-            click.echo("-" * 80)
-        
-        click.echo("\nResponse:")
-        click.echo("=" * 80)
-        click.echo(result.get('response', 'No response received.'))
-        click.echo("=" * 80)
+        logging.getLogger().setLevel(original_level)
+
+    # Set up logging for interactive mode based on verbose flag
+    interactive_log_level = original_level
+    if not verbose:
+        # If not verbose, suppress logging in interactive mode
+        logging.getLogger().setLevel(logging.ERROR)
+
+    # Interactive mode if no query provided
+    # Always display connection info in both modes
+    click.echo("\n🧠 Core4AI Interactive Mode")
+    click.echo(f"Connected to MLflow at: {mlflow_uri}")
+    click.echo(f"Using {provider_config.get('type').upper()} with model: {provider_config.get('model', 'default')}")
+    click.echo("\nType your questions and press Enter. Type /bye to exit.")
+    click.echo("=" * 70)
+    
+    # Track conversation history
+    conversation_history = []
+    
+    try:
+        while True:
+            # Always use emojis for the chat interface
+            try:
+                user_query = click.prompt("\n🧑", prompt_suffix="")
+            except click.exceptions.Abort:
+                # Use consistent goodbye message in both modes
+                click.echo("\nGoodbye! Thank you for using Core4AI Assistant.")
+                break
+            
+            # Check for exit command
+            if user_query.lower() in ['/bye', '/exit', '/quit']:
+                # Use consistent goodbye message in both modes
+                click.echo("\nGoodbye! Thank you for using Core4AI Assistant.")
+                break
+            
+            # Process the query
+            try:
+                # Handle progress indication differently based on verbose mode
+                if verbose:
+                    # In verbose mode, use the progress bar
+                    with click.progressbar(length=100, label='Thinking...', show_eta=False) as bar:
+                        for i in range(100):
+                            time.sleep(0.1)  # Small delay for visual effect
+                            bar.update(1)
+                        
+                        # Process query
+                        result = asyncio.run(process_query(user_query, provider_config, True))
+                else:
+                    # In simple mode, just show a minimal indicator or spinner
+                    with click.progressbar(length=100, label='Thinking...', show_eta=False) as bar:
+                        for i in range(100):
+                            time.sleep(0.1)  # Small delay for visual effect
+                            bar.update(1)
+                        
+                        # Process query
+                        result = asyncio.run(process_query(user_query, provider_config, False))
+                
+                # Display results with emoji but level of detail based on verbose flag
+                click.echo("\n🤖 ", nl=False)  # Always keep the robot emoji
+                
+                if verbose:
+                    # Show match details in verbose mode
+                    prompt_match = result.get("prompt_match", {})
+                    match_status = prompt_match.get("status", "unknown")
+                    
+                    if match_status == "matched":
+                        click.echo(f"[Matched to: {prompt_match.get('prompt_name')} with {prompt_match.get('confidence')}% confidence]")
+                        if result.get("content_type"):
+                            click.echo(f"[Content Type: {result['content_type']}]")
+                            
+                        if result.get("enhanced", False):
+                            click.echo(f"[Enhanced Query: {result.get('enhanced_query', 'N/A')}]")
+                            
+                        click.echo("\n")
+                
+                # Display the response
+                click.echo(result.get('response', 'No response received.'))
+                
+                # Add to conversation history
+                conversation_history.append({
+                    "query": user_query,
+                    "response": result.get('response', 'No response received.')
+                })
+                
+            except Exception as e:
+                # Keep emoji for error messages too
+                click.echo(f"\n🤖 Error processing query: {e}")
+    finally:
+        # Restore logging level when exiting interactive mode
+        if not verbose:
+            logging.getLogger().setLevel(interactive_log_level)
 
 @cli.command()
 def version():
